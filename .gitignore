@@ -1,0 +1,28 @@
+# Secrets and live config — never commit these
+.env
+config.yaml
+
+# Local data volume (SQLite, uploads)
+data/
+
+# Python bytecode and caches
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+
+# Build artifacts
+dist/
+*.egg-info/
+
+# macOS metadata
+.DS_Store
+
+# Editor/IDE directories
+.idea/
+.vscode/
