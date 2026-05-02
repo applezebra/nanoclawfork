@@ -1,0 +1,48 @@
+# config.example.yaml — committed template for the agent configuration.
+# The live config.yaml (which contains real API keys and customised settings)
+# is gitignored and derived from this file. Copy this file to config.yaml and
+# fill in your values before running the agent.
+
+providers:
+  # Provider registry key — used as the prefix in agent model references
+  # (e.g. "deepinfra/meta-llama/Llama-3.3-70B-Instruct").
+  deepinfra:
+    # kind: which client protocol this provider speaks.
+    # "openai_compatible" — uses the OpenAI-compatible REST API (base_url required).
+    # "anthropic"         — Anthropic native API (not yet supported in 0.1).
+    kind: openai_compatible
+
+    # base_url: required when kind is openai_compatible.
+    # This is the root URL of the provider's OpenAI-compatible endpoint.
+    base_url: https://api.deepinfra.com/v1/openai
+
+    # api_key_env: the NAME of the environment variable that holds the API key.
+    # The key value is never stored here — only the variable name.
+    # Set the actual key in your shell or .env file.
+    api_key_env: DEEPINFRA_API_KEY
+
+    # allowed_models: which models this provider is permitted to serve.
+    # DENY-by-default semantics:
+    #   []      — deny all models (operator must explicitly list each one)
+    #   ["*"]   — any model is allowed (escape hatch; use only if you trust the provider fully)
+    #   [a, b]  — exact match required; only listed model IDs are routed to this provider
+    allowed_models:
+      - meta-llama/Llama-3.3-70B-Instruct
+
+agents:
+  # Agent group key — referenced in connector configuration to select which
+  # group handles incoming messages.
+  personal-assistant:
+    # model: "<provider>/<model-id>" — the slash is mandatory.
+    # The provider part must match a key in the providers section above.
+    # The model-id part must appear in that provider's allowed_models list
+    # (or allowed_models must contain "*").
+    model: deepinfra/meta-llama/Llama-3.3-70B-Instruct
+
+    # system_prompt: the system instruction sent to the model on every turn.
+    system_prompt: "You are a helpful assistant."
+
+    # connectors: which inbound connectors route messages to this agent group.
+    # In 0.1 only "telegram" is a valid connector.
+    connectors:
+      - telegram
