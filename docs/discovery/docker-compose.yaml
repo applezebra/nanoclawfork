@@ -1,0 +1,55 @@
+# Hardened compose — enforces the controls in container/SECURITY.md.
+# Service names ('agent') are intentionally generic so renaming is painless.
+
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: container/Dockerfile
+    image: nanoclawfork:dev          # rename-site reminder: pyproject + __about__ only
+    container_name: agent
+    restart: unless-stopped
+
+    # --- Security controls (control numbers reference SECURITY.md) ---
+    user: "10001:10001"              # #1  non-root
+    read_only: true                  # #2  root FS read-only
+    tmpfs:
+      - /tmp:size=64m,mode=1777      # #3  scratch space, no host write
+    cap_drop: ["ALL"]                # #6  no Linux caps
+    security_opt:
+      - no-new-privileges:true       # #7
+      # - seccomp:./container/seccomp.json   # #8  stage 2
+
+    # --- Resource limits (#13) ---
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+          pids: 256
+
+    # --- Mounts: ONLY what mount-policy.yaml allows (#4, #5, #15) ---
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - agent-data:/data
+      # Add per-agent extra mounts here, never above this line, with explicit `:ro` default.
+
+    # --- Network segmentation (#10, #11, #20) ---
+    networks:
+      - agent-egress
+    # No `network_mode: host` — ever.
+    # No `ports:` — connectors initiate outbound; webhooks via reverse proxy in stage 2.
+
+    # --- Secrets via env from .env, never in image (#14) ---
+    env_file:
+      - .env
+    environment:
+      AGENT_DATA_DIR: /data
+
+volumes:
+  agent-data:                        # #3  isolated named volume
+
+networks:
+  agent-egress:
+    driver: bridge
+    # Stage 2: egress firewall rules at this layer to allowlist provider hosts only.

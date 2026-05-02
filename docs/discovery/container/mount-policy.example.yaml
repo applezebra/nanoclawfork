@@ -1,0 +1,35 @@
+# Per-agent mount allowlist.
+# NanoClaw principle: the agent only sees what is *explicitly* mounted.
+# Everything outside this list is unreachable from inside the container.
+
+# Required mounts — every agent gets these.
+required:
+  - source: ./config.yaml
+    target: /config/config.yaml
+    mode: ro                    # read-only — agent cannot tamper with its own policy
+  - source: agent-data          # named docker volume
+    target: /data
+    mode: rw                    # writable, but isolated (no host bind)
+
+# Optional per-agent mounts — explicitly opted in.
+# Examples (commented):
+#
+# code-helper:
+#   - source: /home/user/projects/myapp
+#     target: /workspace/myapp
+#     mode: ro                  # read-only by default — flip to rw consciously
+#
+# personal-assistant:
+#   - source: /home/user/Documents/notes
+#     target: /workspace/notes
+#     mode: rw
+
+# What is NEVER mounted (encoded as a denylist hint for review):
+forbidden:
+  - /var/run/docker.sock        # would grant container escape
+  - /                           # the host root
+  - /home                       # all home directories
+  - /etc                        # host config
+  - ~/.ssh                      # host SSH keys
+  - ~/.aws                      # cloud credentials
+  - ~/.config                   # user configs (often hold tokens)

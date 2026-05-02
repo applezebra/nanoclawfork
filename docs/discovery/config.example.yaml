@@ -1,0 +1,70 @@
+# Provider registry + agent groups.
+# Copy to config.yaml and fill in. config.yaml is gitignored.
+
+providers:
+  # OpenAI-compatible providers (DeepInfra, Together, Groq, Fireworks, vLLM, etc.)
+  deepinfra:
+    kind: openai_compatible
+    base_url: https://api.deepinfra.com/v1/openai
+    api_key_env: DEEPINFRA_API_KEY
+    allowed_models:
+      - meta-llama/Llama-3.3-70B-Instruct
+      - moonshotai/Kimi-K2.5
+      - deepseek-ai/DeepSeek-V3
+
+  ollama:
+    kind: openai_compatible
+    base_url: http://ollama:11434/v1
+    api_key_env: null            # local, no key
+    allowed_models:
+      - llama3.3
+      - qwen2.5:14b
+
+  groq:
+    kind: openai_compatible
+    base_url: https://api.groq.com/openai/v1
+    api_key_env: GROQ_API_KEY
+    allowed_models:
+      - llama-3.3-70b-versatile
+
+  # Native providers (equal-class — not "default")
+  anthropic:
+    kind: anthropic
+    base_url: null
+    api_key_env: ANTHROPIC_API_KEY
+    allowed_models:
+      - claude-sonnet-4-6
+      - claude-haiku-4-5-20251001
+
+  openai:
+    kind: openai_compatible
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    allowed_models:
+      - gpt-5.1
+      - gpt-5.1-codex
+
+
+# Each agent group binds a model + prompt + tool set + connector(s).
+# Different groups can run on different providers — the registry doesn't care.
+agents:
+  personal-assistant:
+    model: deepinfra/meta-llama/Llama-3.3-70B-Instruct
+    system_prompt: |
+      You are a personal assistant running in an isolated container.
+      Be concise. Refuse anything outside the user's explicit allowlist.
+    tools: []
+    connectors:
+      - telegram
+
+  code-helper:
+    model: deepinfra/deepseek-ai/DeepSeek-V3
+    system_prompt: "You help with code. Stay in the project mount."
+    tools: []
+    connectors: []
+
+  local-only:
+    model: ollama/llama3.3
+    system_prompt: "Local-only assistant. No network egress."
+    tools: []
+    connectors: []
