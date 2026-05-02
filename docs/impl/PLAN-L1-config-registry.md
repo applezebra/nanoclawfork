@@ -2,7 +2,11 @@
 
 **Lane:** L1
 **Version:** 0.1
-**Status:** Ready for `/plan-eng-review`
+**Status:** `/plan-eng-review` complete (2026-05-02) — 8 fixes applied (A1, A2, A3, C1, T1, T2, T3, P2-4). Ready for code-implementer.
+
+## Revision log
+
+- **2026-05-02 (post-eng-review):** Applied A1 (specify `@model_validator(mode="after")` for base_url+kind cross-field rule), A2 (flipped `allowed_models: []` semantics — empty list now means DENY all; use `["*"]` for any-model), A3 (added `model_config = ConfigDict(extra="forbid")` to all 3 models so typos fail loudly), C1 (specified ConfigError message construction via `e.errors()` iteration), T1 (replaced fragile yaml.load monkeypatch test with source-grep check), T2 (added explicit test that Anthropic raises NotImplementedError even when ANTHROPIC_API_KEY is set), T3 (added typo'd-field test for extra="forbid"), P2-4 (added `provider_name: str` field to `ResolvedProvider` — needed by L2/L4 log lines).
 **Depends on:** L0 (importable `agent` package, `get_logger`)
 **Blocks:** L2 (runtime needs `ResolvedProvider`), L4 (connector needs `Config`)
 **Can run in parallel with:** L3, L5 (Dockerfile draft)
@@ -64,18 +68,21 @@ L1 loads `config.yaml`, validates it with Pydantic v2 models, and exposes a type
 
 `ProviderSpec` — represents one entry in `config.yaml`'s `providers:` map:
 - `kind: Literal["openai_compatible", "anthropic"]` — only these two are valid in 0.1 schema. Other strings fail validation at load time.
-- `base_url: str | None` — required for `openai_compatible`, optional for `anthropic` (which defaults to the Anthropic endpoint). Use a Pydantic validator to enforce that `base_url` is present when `kind == "openai_compatible"`.
+- `base_url: str | None` — required for `openai_compatible`, optional for `anthropic` (which defaults to the Anthropic endpoint). Cross-field rule enforced via `@model_validator(mode="after")` (eng-review A1) — Pydantic v2 idiom for rules that depend on multiple fields. Field-level validators cannot see other fields; model-level validators run after all fields are individually validated.
 - `api_key_env: str | None` — the name of the environment variable that holds the API key. Nullable for local providers (Ollama in the future, not 0.1). This is the variable NAME, not the value — the value is read by the registry at resolve time.
-- `allowed_models: list[str]` — the models this provider is permitted to serve. Empty list means all models are allowed (documented in `config.example.yaml`; the resolver enforces this interpretation).
+- `allowed_models: list[str]` — the models this provider is permitted to serve. **Empty list = DENY all models** (operator must explicitly list each permitted model). To allow any model from this provider without enumeration, use the literal entry `"*"` (eng-review A2: deny-by-default semantics — flipped from the previous "empty = allow all" because that was a security footgun where an operator who typed `allowed_models: []` thinking they were disabling actually enabled everything).
+- `model_config = ConfigDict(extra="forbid")` — eng-review A3. Unknown fields fail validation rather than silently ignored. Catches typos like `kindd:` or `base-url:` at load time with a message naming the unknown field.
 
 `AgentGroupSpec` — represents one entry in `config.yaml`'s `agents:` map:
 - `model: str` — the form `"<provider>/<model-id>"`. The slash is mandatory; a validator splits on the first `/` and checks that both parts are non-empty.
 - `system_prompt: str` — the system prompt for this agent group. No validation beyond "non-empty string."
 - `connectors: list[str]` — list of connector names (e.g. `["telegram"]`). In 0.1 only `"telegram"` is valid, but the schema does not enforce this — validation would be premature coupling to the connector layer.
+- `model_config = ConfigDict(extra="forbid")` — eng-review A3.
 
 `Config` — the top-level model:
 - `providers: dict[str, ProviderSpec]` — keyed by provider name (e.g. `"deepinfra"`).
 - `agents: dict[str, AgentGroupSpec]` — keyed by agent group name (e.g. `"personal-assistant"`).
+- `model_config = ConfigDict(extra="forbid")` — eng-review A3.
 
 `ConfigError` — a plain `Exception` subclass. Used by both `config.py` and `registry.py` to signal configuration problems. Defined here so both modules can raise it without a circular import.
 
@@ -83,7 +90,7 @@ L1 loads `config.yaml`, validates it with Pydantic v2 models, and exposes a type
 1. Read the file with `path.read_text(encoding="utf-8")`.
 2. Parse with `yaml.safe_load()` — never `yaml.load()` (unsafe deserializer).
 3. Pass the dict to `Config.model_validate()`.
-4. Wrap Pydantic's `ValidationError` in a `ConfigError` with a human-readable message naming the offending field. The goal: an operator who has never seen Pydantic's error format can still diagnose the problem.
+4. Wrap Pydantic's `ValidationError` in a `ConfigError` with a human-readable message naming the offending field (eng-review C1). Concretely: iterate `validation_error.errors()` (returns list of dicts with `loc`, `msg`, `type`), format each as `f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}"`, join with newlines, prefix with `"Invalid config:\n"`. The goal: an operator who has never seen Pydantic's error format can still diagnose the problem at a glance.
 5. Log a startup message via `get_logger("agent.config")` at INFO level: `"Config loaded: {n} providers, {m} agent groups"` (no secrets in this log line).
 
 `config.example.yaml` — document every key with inline YAML comments. Required content:
@@ -102,7 +109,9 @@ tests/test_l1_config_registry.py  (Step 1 portion)
 - Pass a dict with a missing required field (e.g. no `kind` on a provider) to `Config.model_validate()` — assert raises `ConfigError` (not `ValidationError`).
 - Pass `model: "deepinfra"` (no slash, no model-id) — assert raises `ConfigError` from the model-format validator.
 - Pass a config with `kind: "ollama"` (not in the `Literal`) — assert raises `ConfigError`.
-- Assert that `load_config()` uses `yaml.safe_load` (not `yaml.load`) — inspect the call via monkeypatching or by ensuring `yaml.load` is not imported.
+- **yaml.safe_load enforcement (eng-review T1):** assert via source-code grep, not behavior. Read `agent/config.py` as text and assert `re.search(r"\byaml\.load\b", source)` returns no match (allowing `yaml.safe_load`). Bulletproof against aliased imports that a behavioral monkeypatch would miss.
+- **Typo'd field rejection (eng-review T3):** pass a config dict with a typo'd provider field (e.g. `{"deepinfra": {"kindd": "openai_compatible", ...}}`) — assert raises `ConfigError` whose message names the typo'd field name (`kindd`). Verifies `extra="forbid"` is in effect.
+- **Empty allowed_models is DENY-all (eng-review A2):** load a config where a provider has `allowed_models: []`, attempt to resolve any model against it — assert raises `ConfigError` because no model is in the (empty) allowlist. Documents the deny-by-default semantics.
 
 **Acceptance check before proceeding to Step 2:**
 - `python -c "from agent.config import load_config; from pathlib import Path; c = load_config(Path('config.example.yaml')); print(c.providers)"` works without error.
@@ -122,7 +131,8 @@ tests/test_l1_config_registry.py  (Step 1 portion)
 
 `agent/registry.py` — implement `resolve(config: Config, model_ref: str) -> ResolvedProvider`:
 
-`ResolvedProvider` — a named tuple or frozen dataclass with fields:
+`ResolvedProvider` — a frozen dataclass with fields:
+- `provider_name: str` — the provider's registry key (e.g. `"deepinfra"`). **Eng-review P2-4 carry-forward**: L2/L4 log lines need this for structured logging like `provider=deepinfra model=Llama-3.3-70B`. Without it the kind alone is ambiguous (multiple providers can share `kind="openai_compatible"`).
 - `kind: str` — `"openai_compatible"` or `"anthropic"` (matches `ProviderSpec.kind`)
 - `base_url: str | None`
 - `api_key: str | None` — the actual secret value read from env at resolve time
@@ -134,11 +144,11 @@ The resolver does the following, in order:
 
 2. Look up `provider_name` in `config.providers`. If not found, raise `ConfigError` naming the missing provider. This is the "crash loudly" contract behavior.
 
-3. If `provider.allowed_models` is non-empty, check that `model_id` is in the list. If not, raise `ConfigError` naming the model and the provider, and listing the allowed alternatives. This is a security control: prevents the operator from accidentally routing to an unconfigured model.
+3. **Allowed-models check (eng-review A2 — deny by default):** check that `model_id` is in `provider.allowed_models`. The wildcard literal `"*"` in the list means "any model is allowed" (escape hatch for operators who explicitly opt into open-ended provider use). Empty list means deny all (no model passes). Anything not matching → raise `ConfigError` naming the model, the provider, and the allowed alternatives. Security control: prevents accidental routing to an unconfigured model AND prevents the empty-list footgun.
 
 4. If `provider.api_key_env` is set, read `os.environ.get(provider.api_key_env)`. If the value is `None` or empty, raise `ConfigError` naming the missing environment variable. This is the "crash loudly" behavior for missing secrets — per CONTRACT resolved decisions: "Missing API key env var raises clear error naming the missing variable."
 
-5. If `provider.kind == "anthropic"`, raise `NotImplementedError("Anthropic provider kind is accepted by the schema but runtime support is not implemented in 0.1. Configure an openai_compatible provider instead.")`. Per DECISIONS.md D1: registry validates eagerly at config-load time so misconfig fails fast at startup, not at first message. This is consistent with the resolved decision "Crash loudly at startup."
+5. If `provider.kind == "anthropic"`, raise `NotImplementedError("Anthropic provider kind is accepted by the schema but runtime support is not implemented in 0.1. Configure an openai_compatible provider instead.")`. Per DECISIONS.md D1: registry validates eagerly at config-load time so misconfig fails fast at startup, not at first message. **Order matters (eng-review T2):** this check fires AFTER step 4 (api_key read) so the NotImplementedError is the FINAL outcome regardless of whether `ANTHROPIC_API_KEY` is set. Test must verify both states (key set, key unset) both raise NotImplementedError.
 
 6. Log at DEBUG level: `"Resolved {provider_name}/{model_id} → kind={kind}"`. Do not log the API key value.
 
@@ -152,6 +162,8 @@ The resolver does the following, in order:
 - Missing API key: unset `DEEPINFRA_API_KEY` from env, call `resolve()` — assert raises `ConfigError` whose message names the env var.
 - Assert the `ConfigError` message in each failure case is a non-empty human-readable string (not just the exception type).
 - Anthropic kind: configure a provider with `kind: anthropic`, call `resolve()` against any model in that provider — assert raises `NotImplementedError` with a message naming "anthropic" and "0.1" (per D1).
+- **Anthropic-with-key-set (eng-review T2):** same as above but ALSO set `ANTHROPIC_API_KEY=test-key` in env beforehand — assert STILL raises `NotImplementedError` (not a successful resolve). Verifies the runtime-not-implemented check fires regardless of whether the key is configured.
+- **provider_name populated (eng-review P2-4):** in the happy-path test, also assert `result.provider_name == "deepinfra"`.
 
 **Acceptance check before closing L1:**
 - All Step 1 and Step 2 tests pass.

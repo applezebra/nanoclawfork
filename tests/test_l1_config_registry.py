@@ -1,7 +1,7 @@
 """L1 tests — config schema + provider registry.
 
 Step 1 tests (schema and loader) are below.
-Step 2 tests (resolver) will be added in the next invocation.
+Step 2 tests (resolver) follow in the second section.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import yaml
 from pydantic import ValidationError
 
 from agent.config import Config, ConfigError, load_config
+from agent.registry import ResolvedProvider, resolve
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -161,3 +162,126 @@ def test_malformed_yaml_raises_config_error(tmp_path):
     with pytest.raises(ConfigError) as excinfo:
         load_config(bad)
     assert "malformed yaml" in str(excinfo.value).lower()
+
+
+# ---------------------------------------------------------------------------
+# Step 2 — Provider registry resolver
+# ---------------------------------------------------------------------------
+
+# Shared helper: build a config with provider 'p' using _make_raw, then load it.
+def _make_config(provider_override: dict | None = None) -> Config:
+    return _load_from_dict(_make_raw(provider_override=provider_override))
+
+
+def test_resolve_happy_path(monkeypatch):
+    """Happy path: resolve known model with API key set returns ResolvedProvider."""
+    monkeypatch.setenv("DEEPINFRA_API_KEY", "test-key")
+    config = load_config(_EXAMPLE_CONFIG)
+    result = resolve(config, "deepinfra/meta-llama/Llama-3.3-70B-Instruct")
+    assert isinstance(result, ResolvedProvider)
+    assert result.provider_name == "deepinfra"
+    assert result.kind == "openai_compatible"
+    assert result.model_id == "meta-llama/Llama-3.3-70B-Instruct"
+    assert result.api_key == "test-key"
+
+
+def test_resolve_provider_name_populated(monkeypatch):
+    """P2-4: provider_name field is set to the registry key, not the kind."""
+    monkeypatch.setenv("DEEPINFRA_API_KEY", "test-key")
+    config = load_config(_EXAMPLE_CONFIG)
+    result = resolve(config, "deepinfra/meta-llama/Llama-3.3-70B-Instruct")
+    assert result.provider_name == "deepinfra"
+
+
+def test_resolve_unknown_provider_raises_config_error():
+    """Unknown provider in model_ref raises ConfigError naming the provider."""
+    config = load_config(_EXAMPLE_CONFIG)
+    with pytest.raises(ConfigError) as excinfo:
+        resolve(config, "nonexistent/some-model")
+    err = str(excinfo.value)
+    assert err  # non-empty human-readable string
+    assert "nonexistent" in err
+
+
+def test_resolve_disallowed_model_raises_config_error(monkeypatch):
+    """Model not in allowed_models raises ConfigError naming model and allowed list."""
+    monkeypatch.setenv("DEEPINFRA_API_KEY", "test-key")
+    config = load_config(_EXAMPLE_CONFIG)
+    with pytest.raises(ConfigError) as excinfo:
+        resolve(config, "deepinfra/gpt-4o")
+    err = str(excinfo.value)
+    assert err  # non-empty
+    assert "gpt-4o" in err
+    # Should also mention what IS allowed so operator can diagnose
+    assert "meta-llama/Llama-3.3-70B-Instruct" in err
+
+
+def test_resolve_empty_allowed_models_denies_all(monkeypatch):
+    """A2: empty allowed_models = deny all — any model_id raises ConfigError."""
+    monkeypatch.setenv("EXAMPLE_API_KEY", "test-key")
+    config = _make_config(provider_override={"allowed_models": []})
+    with pytest.raises(ConfigError) as excinfo:
+        resolve(config, "p/anything")
+    assert str(excinfo.value)  # non-empty
+
+
+def test_resolve_wildcard_allows_any(monkeypatch):
+    """A2: allowed_models=['*'] permits any model_id — resolve succeeds."""
+    monkeypatch.setenv("EXAMPLE_API_KEY", "test-key")
+    config = _make_config(provider_override={"allowed_models": ["*"]})
+    result = resolve(config, "p/anything")
+    assert result.model_id == "anything"
+    assert result.provider_name == "p"
+
+
+def test_resolve_missing_api_key_raises_config_error(monkeypatch):
+    """Missing API key env var raises ConfigError naming the variable."""
+    monkeypatch.delenv("DEEPINFRA_API_KEY", raising=False)
+    config = load_config(_EXAMPLE_CONFIG)
+    with pytest.raises(ConfigError) as excinfo:
+        resolve(config, "deepinfra/meta-llama/Llama-3.3-70B-Instruct")
+    err = str(excinfo.value)
+    assert err  # non-empty
+    assert "DEEPINFRA_API_KEY" in err
+
+
+def test_resolve_anthropic_raises_not_implemented():
+    """D1: anthropic kind raises NotImplementedError with 'anthropic' and '0.1' in message."""
+    config = _make_config(provider_override={"kind": "anthropic", "base_url": None, "api_key_env": None})
+    with pytest.raises(NotImplementedError) as excinfo:
+        resolve(config, "p/some-model")
+    err = str(excinfo.value)
+    assert "anthropic" in err.lower()
+    assert "0.1" in err
+
+
+def test_resolve_anthropic_with_key_still_raises_not_implemented(monkeypatch):
+    """T2: NotImplementedError fires even when ANTHROPIC_API_KEY is set in env."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    config = _make_config(provider_override={"kind": "anthropic", "base_url": None, "api_key_env": "ANTHROPIC_API_KEY"})
+    with pytest.raises(NotImplementedError) as excinfo:
+        resolve(config, "p/some-model")
+    err = str(excinfo.value)
+    assert "anthropic" in err.lower()
+    assert "0.1" in err
+
+
+def test_resolve_config_error_messages_are_nonempty(monkeypatch):
+    """ConfigError messages are non-empty human-readable strings in all failure cases."""
+    config = load_config(_EXAMPLE_CONFIG)
+
+    # Unknown provider
+    with pytest.raises(ConfigError) as exc:
+        resolve(config, "ghost/model")
+    assert str(exc.value)
+
+    # Disallowed model (key not needed — fails before step 4)
+    with pytest.raises(ConfigError) as exc:
+        resolve(config, "deepinfra/not-allowed-model")
+    assert str(exc.value)
+
+    # Missing API key
+    monkeypatch.delenv("DEEPINFRA_API_KEY", raising=False)
+    with pytest.raises(ConfigError) as exc:
+        resolve(config, "deepinfra/meta-llama/Llama-3.3-70B-Instruct")
+    assert str(exc.value)
