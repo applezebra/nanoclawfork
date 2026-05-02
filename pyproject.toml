@@ -1,0 +1,18 @@
+[build-system]
+requires = ["flit_core>=3.9.0"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "nanoclawfork"
+version = "0.1.0"
+description = "An LLM-agnostic NanoClaw fork — same security posture, no Anthropic lock-in."
+# `readme` field intentionally omitted in L0 — README.md is created in L6.
+# Add `readme = "README.md"` here as part of L6 release polish.
+license = {text = "MIT"}
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic==2.13.3",
+    "pydantic-ai==1.89.0",
+    "python-telegram-bot==22.7",
+    "PyYAML==6.0.3",
+]
