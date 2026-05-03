@@ -1,8 +1,8 @@
 # Implementation Plan — L5: Container Hardening
 
 **Lane:** L5
-**Version:** 0.1
-**Status:** Ready for `/plan-eng-review`
+**Version:** 0.2 (post-eng-review 2026-05-03)
+**Status:** Approved by `/plan-eng-review` — ready for code-implementer
 **Depends on:** L0 (package skeleton — needed for a working `pip install`); validates fully only after L4 is complete (the agent must actually run)
 **Blocks:** L6 (final LOC count, README claims, AC-6/AC-7 verification)
 **Can run in parallel with:** L1, L3 (Dockerfile and compose file drafts can be written while application lanes are in progress; the final acceptance pass happens after L4)
@@ -36,13 +36,14 @@ L5 produces the `Dockerfile`, `entrypoint.sh`, `docker-compose.yaml`, `container
 | Hardened entrypoint script | `container/entrypoint.sh` |
 | Compose definition | `docker-compose.yaml` |
 | Mount allowlist | `container/mount-policy.yaml` |
+| Env var template (eng-review P2-5) | `.env.example` |
 | Updated security checklist | `docs/discovery/container/SECURITY.md` (inline verification notes added) |
 
 ---
 
 ## 3. WHY — Rationale per Artifact
 
-- **`agent/__main__.py`** — CONTRACT §Size Discipline: "CLI entrypoint 30/50 LOC, just wires Config + Memory + Connector.run." The `pyproject.toml` entry point (`agent = "agent.__main__:main"`) declared in L0 resolves to this file. This is the one file that imports from all application lanes and starts the agent. It is thin by design — all logic lives in the lane modules.
+- **`agent/__main__.py`** — CONTRACT §Size Discipline: "CLI entrypoint 30/50 LOC, just wires Config + Memory + Connector.run." The `pyproject.toml` entry point (`agent = "agent.__main__:main"`) is added alongside this file in Step 1 (eng-review P2-1; L0 omitted it because no entry point existed yet). This is the one file that imports from all application lanes and starts the agent. It is thin by design — all logic lives in the lane modules.
 
 - **`Dockerfile`** — SECURITY.md controls 1 (non-root), 16 (minimal base), 17 (no build tools in runtime). The multi-stage build pattern separates the build environment (with `pip`, `gcc`) from the runtime image (none of those). AC-6 requires `docker inspect` to show non-root UID.
 
@@ -63,8 +64,11 @@ L5 produces the `Dockerfile`, `entrypoint.sh`, `docker-compose.yaml`, `container
 **Files touched (≤3):**
 1. `agent/__main__.py`
 2. `tests/test_l5_container.py` (start the test file)
+3. `pyproject.toml` (add `[project.scripts] agent = "agent.__main__:main"` — eng-review P2-1)
 
-**LOC estimate:** ~30 effective LOC in `agent/__main__.py`. 0 LOC in `Dockerfile` or compose yet.
+**LOC estimate:** ~30 effective LOC in `agent/__main__.py`, +3 LOC in pyproject.toml. 0 LOC in `Dockerfile` or compose yet.
+
+**Why pyproject.toml is touched here:** `entrypoint.sh` (Step 2) calls `exec agent` — that resolves only if pip-install registered an `agent` console script. L0's pyproject.toml omitted this because no entry point existed yet. Adding it in Step 1 (alongside the entrypoint module) keeps the script declaration co-located with the function it points to.
 
 **What to write:**
 
@@ -76,10 +80,10 @@ L5 produces the `Dockerfile`, `entrypoint.sh`, `docker-compose.yaml`, `container
 3. Log at INFO: `"Agent starting: provider={...} model={...} connector=telegram"` (the provider and model come from `config.agents["personal-assistant"].model`). This satisfies NFR-O3 and FR-L4.
 4. Verify no Anthropic connections by resolving the provider: call `resolve(config, model_ref)`. If `ConfigError`, log CRITICAL and `sys.exit(1)`.
 5. Initialize memory: `memory = Memory(default_db_path())`. If the DB path is not writable (e.g. the named volume was not mounted), this will fail with a `sqlite3.OperationalError` — catch it, log CRITICAL, `sys.exit(1)`.
-6. Start the Telegram connector: `asyncio.run(connector_run(config, resolve, memory))`. The `connector_run` import is `from agent.connectors.telegram import run as connector_run`.
-7. On `KeyboardInterrupt` or `SystemExit`: log `"Agent stopped"` at INFO and exit cleanly.
+6. Start the Telegram connector: `connector_run(config, resolve, memory)` — SYNC call, NOT wrapped in asyncio.run (eng-review P1-2). The import is `from agent.connectors.telegram import run as connector_run`. L4 eng-review A4 made `connector.run()` synchronous because pgttb 22.x's `Application.run_polling()` owns its own event loop and signal handlers; wrapping it in asyncio.run would either crash (sync function returns None to asyncio.run) or deadlock the loop.
+7. On `KeyboardInterrupt` or `SystemExit`: log `"Agent stopped"` at INFO and exit cleanly. (pgttb's internal SIGINT handler unwinds run_polling; the BaseException then surfaces here.)
 
-Why `asyncio.run()` in `main()`: the Telegram connector's `run()` is an async function (it uses `python-telegram-bot`'s async polling). `asyncio.run()` is the standard way to enter the event loop from a synchronous entry point. No `asyncio.get_event_loop()`, no `loop.run_forever()` — `asyncio.run()` is the modern, correct approach.
+Why no asyncio.run: the connector is already sync. Adding asyncio.run would be wrong by construction — a sync function passed to asyncio.run raises `TypeError: a coroutine was expected`. This is a v0.1 → v0.2 correction; the original draft assumed an async connector signature that was changed during L4 eng-review.
 
 **Tests to add:**
 
@@ -90,6 +94,7 @@ tests/test_l5_container.py  (Step 1 portion)
 - Test that `main()` calls `sys.exit(1)` when `TELEGRAM_BOT_TOKEN` is missing (mock `connector_run` to never be called). Use `pytest.raises(SystemExit)`.
 - Test that `main()` calls `sys.exit(1)` when `config.yaml` is not found (pass a non-existent path). Use `pytest.raises(SystemExit)`.
 - Test that `main()` logs the active provider and model at startup before any connector call (capture log output, assert the INFO line contains "provider=" and "model=").
+- **eng-review P2-2:** Test that `main()` invokes the connector SYNCHRONOUSLY (no asyncio wrapper). Mock `connector_run` and assert it was called once with `(config, resolve, memory)` positional args, AND that `asyncio.run` was NOT called from main() (use `monkeypatch.setattr("asyncio.run", lambda *a, **kw: pytest.fail("asyncio.run must not be called — connector is sync"))`). Locks in the L4 A4 sync contract against future regression.
 
 **Acceptance check before proceeding to Step 2:**
 - Step 1 tests pass.
@@ -122,6 +127,17 @@ tests/test_l5_container.py  (Step 1 portion)
 - Create `/data` and `/config` directories and `chown agent:agent /data`. `/config` will be the read-only config mount point.
 - Also mount a writable `/tmp` via tmpfs in compose — but create the `/tmp` directory here so it exists for tmpfs mounting. This addresses IMPACT-ANALYSIS R3: "Read-only root FS breaks Python at runtime (some libs write to `~/.cache`, `/tmp`)."
 - Set `HOME=/tmp` in `ENV` — this redirects any library that writes to `~/.cache` to use `/tmp` instead, which will be a tmpfs mount.
+
+**Writable-path enumeration (eng-review P2-6) — every path Python and our deps may write to under read-only root FS:**
+
+| Path | Why writable | Covered by |
+|---|---|---|
+| `/tmp` | stdlib tempfile, PydanticAI HTTP client temp buffers, generic scratch | tmpfs mount in compose |
+| `~/.cache/*` (= `/tmp/.cache/*` after `HOME=/tmp`) | pip cache (build only — runtime stage has no pip), httpx connection state, any pkg using `appdirs` | redirected to tmpfs via `HOME=/tmp` |
+| `__pycache__/` next to .py files | CPython bytecode cache | suppressed via `ENV PYTHONDONTWRITEBYTECODE=1` (add this to Dockerfile — saves a real footgun under read-only FS) |
+| `/data/agent.sqlite` + WAL/SHM siblings | L3 memory store | named volume `agent-data` mounted writable |
+
+Step 2 acceptance must include: `docker run --rm --read-only --tmpfs /tmp -e HOME=/tmp kayaclaw:dev python -c "from agent.connectors.telegram import _is_allowed; print('ok')"` succeeds. Proves no module-import side effect tries to write outside the writable mounts.
 - `USER agent`.
 - `WORKDIR /data`.
 - `ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]`.
@@ -172,7 +188,7 @@ services:
     environment:
       - TELEGRAM_BOT_TOKEN   # sourced from .env, not hardcoded — control 14
       - DEEPINFRA_API_KEY
-      - ALLOWED_TELEGRAM_USER_IDS
+      - ALLOWED_TELEGRAM_CHAT_IDS    # eng-review P1: was USER_IDS in v0.1; renamed per L4 A1
       - AGENT_DATA_DIR=/data
       - LOG_LEVEL=INFO
       - HOME=/tmp            # redirects ~/.cache writes
@@ -203,6 +219,21 @@ volumes:
 
 Env var convention: list env var names without values in the compose file. The values come from `.env` (gitignored). This is the correct pattern for `docker compose` secret handling — SECURITY.md control 14.
 
+`.env.example` (eng-review P2-5) — a template a self-hoster copies to `.env` on first run. Three keys, no values, one-line comments each:
+
+```
+# Get from @BotFather on Telegram
+TELEGRAM_BOT_TOKEN=
+
+# Comma-separated Telegram chat IDs allowed to message the bot
+ALLOWED_TELEGRAM_CHAT_IDS=
+
+# OpenAI-compatible provider key (DeepInfra example; rename per your provider in config.yaml)
+DEEPINFRA_API_KEY=
+```
+
+Add `.env` to `.gitignore` if not already present. `.env.example` itself IS committed.
+
 `container/mount-policy.yaml` — a human-readable declarative allowlist. Not enforced programmatically (enforcement is in the compose file itself); this file documents the policy for reviewers. Include:
 - `required:` section listing `./config.yaml → /config/config.yaml:ro` and `agent-data → /data:rw`.
 - `tmpfs:` section listing `/tmp`.
@@ -218,6 +249,7 @@ Env var convention: list env var names without values in the compose file. The v
 - Assert `HostConfig.SecurityOpt` includes `"no-new-privileges:true"`.
 - `docker compose down && up` round-trip: assert the SQLite file exists and contains prior turns (AC-5 integration test — manual verification in 0.1, scripted in 0.2).
 - Python libs do not write to the read-only root FS: run `docker run --rm kayaclaw:dev python -c "import importlib; print('ok')"` — assert exit 0 (proves the read-only FS does not break Python import machinery when `/tmp` is a tmpfs).
+- **eng-review P2-4 (SECURITY.md doc-drift regression):** add `tests/test_l5_security_doc.py` (or extend `test_l5_container.py`) with a tiny grep test that asserts: (a) all 16 required control IDs (1-7, 10-18) appear in `docs/discovery/container/SECURITY.md` at least once, AND (b) the "Known deferrals" section contains controls 8, 9, 19, 20. ~10 lines total. A future edit that drops a verification note silently is caught loudly.
 
 **Acceptance check before closing L5:**
 - `docker compose up` starts without error.
@@ -225,6 +257,7 @@ Env var convention: list env var names without values in the compose file. The v
 - `docker compose down && docker compose up` starts cleanly (idempotent).
 - All 16 required SECURITY.md controls have verification notes.
 - 4 deferred controls listed in "Known deferrals" section.
+- **eng-review P2-3 (AC-4 scripted):** `docker run --rm --entrypoint python kayaclaw:0.1 -c "import anthropic" 2>&1 | grep -q "ModuleNotFoundError" && echo "OK: anthropic absent" || (echo "FAIL: anthropic is reachable inside the container"; exit 1)`. Hard-fails the lane if the Anthropic SDK is somehow importable. Turns AC-4 ("zero Anthropic surface") into a runnable check, not a hope.
 
 ---
 
@@ -293,3 +326,23 @@ In sequence, before closing this lane:
 10. **`security-auditor`** — **required** (REVIEW-PROTOCOL: "Required for L5 (container)"). Verify: all 16 controls are implemented as claimed, tmpfs `/tmp` covers all writable paths Python needs, no secrets baked into any layer, no shell features in entrypoint.sh, `pip show anthropic` inside container returns non-zero.
 
 11. **`git-steward`** — commit message must include `Codex-reviewed (VERDICT: ...)` and `LOC: +n -0 (module __main__ now n/50, Dockerfile+entrypoint now n/60, compose now n/60)`.
+
+---
+
+## 8. Revision Log
+
+**v0.2 (post-/plan-eng-review 2026-05-03):**
+
+P1 (would have crashed the container at startup if not caught):
+- P1-1: Renamed `ALLOWED_TELEGRAM_USER_IDS` → `ALLOWED_TELEGRAM_CHAT_IDS` in §3 compose template. The L4 plan-eng-review A1 already renamed the env var on the connector side; v0.1 of this plan still carried the old name and would have failed _load_env() on first boot.
+- P1-2: Removed `asyncio.run(connector_run(...))` wrapping in §4 Step 1. L4 eng-review A4 made `connector.run()` synchronous (pgttb 22.x's run_polling owns its own event loop). Wrapping a sync function in asyncio.run raises `TypeError: a coroutine was expected`. Replaced with bare `connector_run(config, resolve, memory)` and updated the rationale paragraph.
+
+P2:
+- P2-1: pyproject.toml added as a 4th touched file in Step 1. The `entrypoint.sh exec agent` line requires a `[project.scripts] agent = "agent.__main__:main"` entry point that L0 did not declare. Without this Step 1 alone, the container would start and exit with `agent: command not found`.
+- P2-2: Step 1 test list adds an explicit "no asyncio.run was called" assertion. Locks in the L4 A4 sync contract against future regression — without this, a future refactor that re-introduces asyncio.run would pass the existing tests.
+- P2-3: Step 3 acceptance adds a runnable `python -c "import anthropic"` check. AC-4 ("zero Anthropic surface") was previously documented but never scripted. Plan now hard-fails the lane if anthropic is somehow importable inside the container.
+- P2-4: Step 3 tests add a tiny SECURITY.md grep test asserting all 16 required control IDs and the 4 deferred IDs appear in the doc. ~10 lines. Catches silent doc drift in future edits.
+- P2-5: Added `.env.example` to §2 deliverables and §4 Step 3. Self-hosters cloning the repo otherwise have no template for required env vars. Three keys, one-line comments each.
+- P2-6: Step 2 enumerates every writable path Python may need (/tmp, ~/.cache → /tmp via HOME, __pycache__ suppressed via PYTHONDONTWRITEBYTECODE=1, /data via named volume) in a table with coverage column. Adds a docker-run smoke test that imports a connector module under read-only root + tmpfs to prove no module-import side effects need additional writable mounts. PYTHONDONTWRITEBYTECODE=1 added as a Dockerfile ENV — closes a real footgun under read-only FS.
+
+LOC impact: ~30 plan-doc lines, ~10 lines of test code, ~3 lines in pyproject.toml, ~10 lines in `.env.example`. No new modules, no new abstractions. Step 1/2/3 LOC budgets unchanged.
