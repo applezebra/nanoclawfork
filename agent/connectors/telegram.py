@@ -1,12 +1,24 @@
-"""Telegram polling connector — Steps 1-2: env-var validation + allowlist filter."""
+"""Telegram polling connector — Steps 1-3: env, allowlist, polling loop."""
 from __future__ import annotations
 
 import os
+from typing import Callable
 
-from agent.config import ConfigError
+from telegram import Update
+from telegram.ext import ApplicationBuilder, MessageHandler, filters
+
+from agent import runtime
+from agent.config import Config, ConfigError
 from agent.logging import get_logger
+from agent.memory import Memory
+from agent.registry import ResolvedProvider
 
 _log = get_logger("agent.connectors.telegram")
+
+# The agent group whose model + system_prompt drives the Telegram bot in 0.1.
+# A future lane may make this configurable per-connector; for now there is
+# exactly one connector and one group, so the constant lives here.
+_AGENT_GROUP = "personal-assistant"
 
 
 def _load_env() -> tuple[str, set[int]]:
@@ -56,3 +68,93 @@ def _is_allowed(chat_id: int, allowlist: set[int]) -> bool:
     testable in isolation without mocking the Telegram library.
     """
     return chat_id in allowlist
+
+
+def _make_handler(
+    allowlist: set[int],
+    resolved: ResolvedProvider,
+    system_prompt: str,
+    memory: Memory,
+):
+    """Build the inbound-message handler closure.
+
+    Factored out (rather than nested inside `run()`) so unit tests can
+    construct the handler with mocks and invoke it directly without
+    starting the polling loop. The plan calls this an inline async
+    function; in practice we need a handle on it for tests.
+    """
+
+    async def _handle(update: Update, _context) -> None:
+        # Whole-handler try/except (eng-review C1): a failure in memory,
+        # the LLM call, or reply-send must NOT crash the polling loop.
+        # Catch Exception (not BaseException) so KeyboardInterrupt/
+        # SystemExit still unwind cleanly via pgttb's signal handlers.
+        try:
+            chat = update.effective_chat
+            message = update.effective_message
+            if chat is None or message is None or message.text is None:
+                return
+            chat_id = chat.id
+            text = message.text
+
+            # Auth check FIRST — before any memory write or LLM call
+            # (CONNECTOR-AUDIT #3 + eng-review T1: blocked users get no
+            # data storage, no provider call, no reply, no acknowledgement).
+            if not _is_allowed(chat_id, allowlist):
+                _log.info("auth-drop: chat_id=%d", chat_id)
+                return
+
+            memory.append(chat_id, "user", text)
+            history = memory.history(chat_id)
+            reply_text = await runtime.reply(
+                resolved, system_prompt, history, text, chat_id
+            )
+            memory.append(chat_id, "assistant", reply_text)
+            await message.reply_text(reply_text)
+            # reply_len only — never the reply text itself (eng-review T3).
+            _log.info("reply-sent: chat_id=%d reply_len=%d", chat_id, len(reply_text))
+        except Exception:
+            # exc_info=True; the L0 scrubbing logger redacts any registered
+            # secrets (including the bot token) that might appear in the
+            # traceback (e.g. a Telegram API URL).
+            _log.error("handler failed", exc_info=True)
+
+    return _handle
+
+
+def run(
+    config: Config,
+    registry_resolver: Callable[[Config, str], ResolvedProvider],
+    memory: Memory,
+) -> None:
+    """Long-running Telegram polling loop.
+
+    SYNC, not async (eng-review A4): python-telegram-bot 22.x's
+    Application.run_polling() owns its own event loop and registers
+    SIGINT/SIGTERM handlers internally. The CLI entrypoint calls this
+    function directly with no asyncio.run wrapper.
+    """
+    token, allowlist = _load_env()
+
+    agent_spec = config.agents.get(_AGENT_GROUP)
+    if agent_spec is None:
+        raise ConfigError(
+            f"Agent group {_AGENT_GROUP!r} not found in config; "
+            f"defined groups: {list(config.agents.keys())}"
+        )
+    resolved = registry_resolver(config, agent_spec.model)
+
+    # No token in this log line. Counts and identifiers only.
+    _log.info(
+        "Connector starting: provider=%s model=%s allowlist_size=%d",
+        resolved.provider_name,
+        resolved.model_id,
+        len(allowlist),
+    )
+
+    app = ApplicationBuilder().token(token).build()
+    handler = _make_handler(allowlist, resolved, agent_spec.system_prompt, memory)
+    # filters.TEXT IS the 5MB attachment-size cap mechanism for 0.1 — non-text
+    # is dropped before any handler runs (eng-review A3).
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handler))
+    app.run_polling(allowed_updates=Update.ALL_TYPES)

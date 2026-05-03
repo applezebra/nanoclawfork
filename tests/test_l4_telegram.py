@@ -1,12 +1,36 @@
-"""Tests for L4 Step 1: _load_env() env-var validation."""
+"""Tests for L4 Steps 1-3: _load_env, _is_allowed, _make_handler, run."""
 from __future__ import annotations
 
 import logging
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from agent.config import ConfigError
-from agent.connectors.telegram import _is_allowed, _load_env
+from agent.connectors import telegram as tg
+from agent.connectors.telegram import _is_allowed, _load_env, _make_handler
+from agent.registry import ResolvedProvider
+
+
+def _make_resolved(name: str = "deepinfra", model: str = "meta-llama/L") -> ResolvedProvider:
+    return ResolvedProvider(
+        provider_name=name,
+        kind="openai_compatible",
+        base_url="https://api.example/v1",
+        api_key="fake-key",
+        model_id=model,
+    )
+
+
+def _make_update(chat_id: int, text: str | None) -> MagicMock:
+    """Synthetic python-telegram-bot Update object — only the fields the
+    handler actually reads. effective_message.reply_text is an AsyncMock so
+    `await message.reply_text(...)` resolves cleanly under pytest-anyio."""
+    update = MagicMock()
+    update.effective_chat.id = chat_id
+    update.effective_message.text = text
+    update.effective_message.reply_text = AsyncMock()
+    return update
 
 
 class TestLoadEnvHappyPath:
@@ -179,3 +203,280 @@ class TestIsAllowed:
             _is_allowed(12345, {12345})
             _is_allowed(99999, {12345})
         assert caplog.records == []
+
+
+class TestHandlerHappyPath:
+    """L4 Step 3: end-to-end handler with mocked memory + runtime."""
+
+    pytestmark = pytest.mark.anyio
+
+    async def test_authorized_message_full_flow(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        memory = MagicMock()
+        memory.history.return_value = []
+        reply_mock = AsyncMock(return_value="hi back")
+        monkeypatch.setattr(tg.runtime, "reply", reply_mock)
+
+        resolved = _make_resolved()
+        handler = _make_handler({42}, resolved, "you are helpful", memory)
+
+        update = _make_update(chat_id=42, text="hello")
+        await handler(update, MagicMock())
+
+        # Two appends: user, then assistant — in order
+        assert memory.append.call_count == 2
+        assert memory.append.call_args_list[0].args == (42, "user", "hello")
+        assert memory.append.call_args_list[1].args == (42, "assistant", "hi back")
+
+        reply_mock.assert_awaited_once_with(resolved, "you are helpful", [], "hello", 42)
+        update.effective_message.reply_text.assert_awaited_once_with("hi back")
+
+
+class TestHandlerAuthDrop:
+    """eng-review T1: unauthorized chat_id → no memory write, no LLM call, no reply."""
+
+    pytestmark = pytest.mark.anyio
+
+    async def test_unauthorized_chat_writes_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        memory = MagicMock()
+        reply_mock = AsyncMock()
+        monkeypatch.setattr(tg.runtime, "reply", reply_mock)
+
+        handler = _make_handler({42}, _make_resolved(), "sp", memory)
+        update = _make_update(chat_id=99, text="probe")
+        await handler(update, MagicMock())
+
+        memory.append.assert_not_called()
+        memory.history.assert_not_called()
+        reply_mock.assert_not_awaited()
+        update.effective_message.reply_text.assert_not_awaited()
+
+
+class TestHandlerResilience:
+    """eng-review T2: handler must not crash the polling loop on internal failure."""
+
+    pytestmark = pytest.mark.anyio
+
+    async def test_memory_failure_does_not_propagate(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import sqlite3
+        memory = MagicMock()
+        memory.append.side_effect = sqlite3.OperationalError("disk I/O error")
+        reply_mock = AsyncMock()
+        monkeypatch.setattr(tg.runtime, "reply", reply_mock)
+
+        handler = _make_handler({42}, _make_resolved(), "sp", memory)
+        update = _make_update(chat_id=42, text="hello")
+
+        with caplog.at_level(logging.ERROR, logger="agent.connectors.telegram"):
+            await handler(update, MagicMock())  # must not raise
+
+        # We never got past the failed append → no LLM call
+        reply_mock.assert_not_awaited()
+        # And the failure was logged at ERROR
+        assert any(r.levelno == logging.ERROR for r in caplog.records)
+
+    async def test_handler_recovers_for_subsequent_messages(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Polling-loop survival: a fresh handler call after a failure works."""
+        call = {"n": 0}
+
+        def append_first_fails(*_a, **_kw) -> None:
+            call["n"] += 1
+            if call["n"] == 1:
+                import sqlite3
+                raise sqlite3.OperationalError("flaky disk")
+
+        memory = MagicMock()
+        memory.append.side_effect = append_first_fails
+        memory.history.return_value = []
+        reply_mock = AsyncMock(return_value="ok")
+        monkeypatch.setattr(tg.runtime, "reply", reply_mock)
+
+        handler = _make_handler({42}, _make_resolved(), "sp", memory)
+
+        # First call: append raises → handler swallows
+        await handler(_make_update(42, "first"), MagicMock())
+        # Second call: append succeeds → full flow
+        await handler(_make_update(42, "second"), MagicMock())
+
+        # 1 (failed) + 2 (user + assistant from second flow) = 3 invocations
+        assert memory.append.call_count == 3
+        reply_mock.assert_awaited_once()
+
+
+class TestHandlerLogHygiene:
+    """eng-review T3: reply text never appears in logs; only metadata."""
+
+    pytestmark = pytest.mark.anyio
+
+    async def test_reply_text_not_in_logs(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        sentinel = "sensitive-reply-content-XYZ-789"
+        memory = MagicMock()
+        memory.history.return_value = []
+        monkeypatch.setattr(tg.runtime, "reply", AsyncMock(return_value=sentinel))
+
+        handler = _make_handler({42}, _make_resolved(), "sp", memory)
+
+        with caplog.at_level(logging.DEBUG, logger="agent.connectors.telegram"):
+            await handler(_make_update(42, "ask"), MagicMock())
+
+        all_msgs = " ".join(r.getMessage() for r in caplog.records)
+        assert sentinel not in all_msgs, f"reply text leaked into log: {all_msgs!r}"
+        # And the metadata-only line DID fire — len matches the sentinel.
+        assert f"reply-sent: chat_id=42 reply_len={len(sentinel)}" in all_msgs
+
+    async def test_user_text_not_in_logs(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """User-supplied text must not be logged either (privacy parity with L3)."""
+        secret_user_text = "my-private-question-ABCDEF"
+        memory = MagicMock()
+        memory.history.return_value = []
+        monkeypatch.setattr(tg.runtime, "reply", AsyncMock(return_value="r"))
+
+        handler = _make_handler({42}, _make_resolved(), "sp", memory)
+        with caplog.at_level(logging.DEBUG, logger="agent.connectors.telegram"):
+            await handler(_make_update(42, secret_user_text), MagicMock())
+
+        all_msgs = " ".join(r.getMessage() for r in caplog.records)
+        assert secret_user_text not in all_msgs
+
+
+class TestHandlerTokenScrubbing:
+    """eng-review-aligned: token must never appear in handler error logs.
+
+    Cross-lane integration with L0's secret-scrubbing logger.
+    """
+
+    pytestmark = pytest.mark.anyio
+
+    async def test_token_redacted_from_error_traceback(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from agent import logging as alog
+
+        token = "FAKE_TG_TOKEN_FOR_SCRUB_TEST_5559"
+        # The L0 scrubber reads secrets from env at import time; for a test
+        # we register at runtime by appending to the private _SECRETS list,
+        # then remove in finally.
+        alog._SECRETS.append(token)
+        try:
+            memory = MagicMock()
+            memory.history.return_value = []
+            err_url = f"https://api.telegram.org/bot{token}/getUpdates failed"
+            monkeypatch.setattr(
+                tg.runtime, "reply", AsyncMock(side_effect=RuntimeError(err_url))
+            )
+
+            handler = _make_handler({42}, _make_resolved(), "sp", memory)
+            with caplog.at_level(logging.ERROR, logger="agent.connectors.telegram"):
+                await handler(_make_update(42, "ping"), MagicMock())
+
+            all_msgs = " ".join(
+                (r.getMessage() + " " + (r.exc_text or ""))
+                for r in caplog.records
+            )
+            assert token not in all_msgs, (
+                f"token leaked in error log: {all_msgs!r}"
+            )
+        finally:
+            if token in alog._SECRETS:
+                alog._SECRETS.remove(token)
+
+
+class TestRunStartupLogging:
+    """run() startup line emits provider/model + allowlist size only — no token."""
+
+    def test_startup_log_omits_token(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        from agent.config import AgentGroupSpec, Config, ProviderSpec
+        from agent import logging as alog
+
+        token = "STARTUP_LOG_SCRUB_TOKEN_8888"
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", token)
+        monkeypatch.setenv("ALLOWED_TELEGRAM_CHAT_IDS", "42,43")
+
+        cfg = Config(
+            providers={
+                "deepinfra": ProviderSpec(
+                    kind="openai_compatible",
+                    base_url="https://api.example/v1",
+                    api_key_env="X_KEY",
+                    allowed_models=["m1"],
+                )
+            },
+            agents={
+                "personal-assistant": AgentGroupSpec(
+                    model="deepinfra/m1",
+                    system_prompt="be helpful",
+                ),
+            },
+        )
+
+        # Stub registry.resolve so we don't touch real env keys
+        def fake_resolver(_cfg, model_ref):
+            assert model_ref == "deepinfra/m1"
+            return _make_resolved()
+
+        # Replace ApplicationBuilder so .build().run_polling() is a no-op.
+        # We only care about the startup log line BEFORE app build is invoked
+        # against the live network — mocking out run_polling stops the loop.
+        fake_app = MagicMock()
+        fake_builder = MagicMock()
+        fake_builder.token.return_value = fake_builder
+        fake_builder.build.return_value = fake_app
+        monkeypatch.setattr(tg, "ApplicationBuilder", lambda: fake_builder)
+
+        alog._SECRETS.append(token)
+        try:
+            with caplog.at_level(logging.INFO, logger="agent.connectors.telegram"):
+                tg.run(cfg, fake_resolver, MagicMock())
+
+            all_msgs = " ".join(r.getMessage() for r in caplog.records)
+            assert token not in all_msgs, f"token leaked in startup log: {all_msgs!r}"
+            # And the expected metadata DID appear
+            assert "Connector starting:" in all_msgs
+            assert "provider=deepinfra" in all_msgs
+            assert "model=meta-llama/L" in all_msgs
+            assert "allowlist_size=2" in all_msgs
+
+            # And run_polling was actually called — proves we got to the end of run()
+            fake_app.run_polling.assert_called_once()
+            # The token was passed to .token() but never logged
+            fake_builder.token.assert_called_once_with(token)
+        finally:
+            if token in alog._SECRETS:
+                alog._SECRETS.remove(token)
+
+    def test_run_raises_when_agent_group_missing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agent.config import Config, ProviderSpec
+
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tok")
+        monkeypatch.setenv("ALLOWED_TELEGRAM_CHAT_IDS", "42")
+
+        cfg = Config(
+            providers={
+                "p": ProviderSpec(
+                    kind="openai_compatible",
+                    base_url="https://x",
+                    allowed_models=["*"],
+                )
+            },
+            agents={},  # personal-assistant absent
+        )
+
+        with pytest.raises(ConfigError, match="personal-assistant"):
+            tg.run(cfg, lambda c, r: _make_resolved(), MagicMock())
