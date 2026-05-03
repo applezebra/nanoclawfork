@@ -6,6 +6,7 @@ info. Use get_logger(name) everywhere — never logging.getLogger directly.
 """
 import logging
 import os
+import threading
 
 
 def _collect_secrets() -> list[str]:
@@ -27,6 +28,9 @@ def _collect_secrets() -> list[str]:
 
 
 _SECRETS: list[str] = _collect_secrets()
+# Serializes writers in register_secret(). Readers iterate the immutable
+# snapshot they bound from the module global and never need the lock.
+_SECRETS_LOCK = threading.Lock()
 
 
 def _scrub_text(text: str) -> str:
@@ -160,3 +164,40 @@ def get_logger(name: str) -> logging.Logger:
     # Re-scan for non-propagating loggers created after import (eng-review A1).
     _install_filter()
     return logging.getLogger(name)
+
+
+def register_secret(value: str) -> None:
+    """Register a secret value to be scrubbed from log output at runtime.
+
+    The default secret list is snapshotted at module import. Callers that
+    rotate or load secrets after import (e.g. a connector reading env vars
+    inside its run() entrypoint) should call this so the scrubber sees the
+    in-use value. Idempotent and safe to call multiple times. Non-string or
+    empty values are rejected.
+
+    Concurrency: writers serialize on _SECRETS_LOCK and rebuild a fully sorted
+    new list inside the critical section, then atomically rebind the module
+    global. Readers (e.g. _scrub_text) iterate the snapshot they bound from
+    the module global and never need the lock; CPython attribute lookup is
+    atomic so they always see a complete, fully-sorted list.
+
+    Two race classes the lock prevents (codex-review L4-P2 round 2 P1):
+      1. Writer-vs-writer lost update — two concurrent register_secret calls
+         each computing `sorted(_SECRETS + [value])` from the same stale
+         snapshot and clobbering each other on store.
+      2. Reader-vs-writer prefix-leak — a naive append-then-sort exposes an
+         unsorted intermediate. Rebuilding-then-rebinding under the lock
+         eliminates the intermediate entirely.
+
+    Type safety: rejects non-str inputs (codex-review L4-P2 round 1 P1). A
+    non-str secret would later raise TypeError inside `text.replace(secret,
+    ...)`, breaking the scrubber and the live log call. bool is intentionally
+    rejected via isinstance(value, str) (bool is a subclass of int, not str).
+    """
+    if not isinstance(value, str) or not value:
+        return
+    global _SECRETS
+    with _SECRETS_LOCK:
+        if value in _SECRETS:
+            return
+        _SECRETS = sorted(_SECRETS + [value], key=len, reverse=True)

@@ -9,7 +9,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters
 
 from agent import runtime
 from agent.config import Config, ConfigError
-from agent.logging import get_logger
+from agent.logging import get_logger, register_secret
 from agent.memory import Memory
 from agent.registry import ResolvedProvider
 
@@ -19,6 +19,20 @@ _log = get_logger("agent.connectors.telegram")
 # A future lane may make this configurable per-connector; for now there is
 # exactly one connector and one group, so the constant lives here.
 _AGENT_GROUP = "personal-assistant"
+
+# Telegram's sendMessage hard limit. Text longer than this is rejected by the
+# Bot API. We truncate before send AND before persisting the assistant turn,
+# so memory matches what the user actually saw (security-audit P2-1).
+_TELEGRAM_MAX_TEXT = 4096
+_TRUNCATION_MARKER = "\n…[truncated]"
+
+
+def _truncate_for_telegram(text: str) -> str:
+    """Cap text at Telegram's 4096-char message limit, marking truncation."""
+    if len(text) <= _TELEGRAM_MAX_TEXT:
+        return text
+    keep = _TELEGRAM_MAX_TEXT - len(_TRUNCATION_MARKER)
+    return text[:keep] + _TRUNCATION_MARKER
 
 
 def _load_env() -> tuple[str, set[int]]:
@@ -109,10 +123,15 @@ def _make_handler(
             reply_text = await runtime.reply(
                 resolved, system_prompt, history, text, chat_id
             )
-            memory.append(chat_id, "assistant", reply_text)
-            await message.reply_text(reply_text)
+            # Truncate BEFORE persisting + sending so memory matches what the
+            # user saw. If we appended the full LLM reply and only truncated
+            # the send, the next turn would re-condition on the long text and
+            # the bot would look stuck (security-audit P2-1).
+            outbound = _truncate_for_telegram(reply_text)
+            memory.append(chat_id, "assistant", outbound)
+            await message.reply_text(outbound)
             # reply_len only — never the reply text itself (eng-review T3).
-            _log.info("reply-sent: chat_id=%d reply_len=%d", chat_id, len(reply_text))
+            _log.info("reply-sent: chat_id=%d reply_len=%d", chat_id, len(outbound))
         except Exception:
             # exc_info=True; the L0 scrubbing logger redacts any registered
             # secrets (including the bot token) that might appear in the
@@ -135,6 +154,11 @@ def run(
     function directly with no asyncio.run wrapper.
     """
     token, allowlist = _load_env()
+    # Re-register the in-use token with the L0 scrubber. The default secret
+    # snapshot happens at agent.logging import time; rotating TELEGRAM_BOT_TOKEN
+    # without restarting the process would otherwise leave the new value
+    # unsanitized in tracebacks (security-audit P2-3).
+    register_secret(token)
 
     agent_spec = config.agents.get(_AGENT_GROUP)
     if agent_spec is None:

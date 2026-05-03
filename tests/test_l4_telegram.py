@@ -480,3 +480,229 @@ class TestRunStartupLogging:
 
         with pytest.raises(ConfigError, match="personal-assistant"):
             tg.run(cfg, lambda c, r: _make_resolved(), MagicMock())
+
+
+class TestReplyTruncation:
+    """security-audit P2-1: replies > 4096 chars must be truncated, not silently fail."""
+
+    pytestmark = pytest.mark.anyio
+
+    async def test_short_reply_passed_through_unchanged(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        memory = MagicMock()
+        memory.history.return_value = []
+        monkeypatch.setattr(tg.runtime, "reply", AsyncMock(return_value="short"))
+
+        handler = _make_handler({42}, _make_resolved(), "sp", memory)
+        update = _make_update(42, "ping")
+        await handler(update, MagicMock())
+
+        update.effective_message.reply_text.assert_awaited_once_with("short")
+        assert memory.append.call_args_list[1].args == (42, "assistant", "short")
+
+    async def test_overlong_reply_is_truncated_with_marker(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        long_reply = "A" * 5000  # well over the 4096 cap
+        memory = MagicMock()
+        memory.history.return_value = []
+        monkeypatch.setattr(tg.runtime, "reply", AsyncMock(return_value=long_reply))
+
+        handler = _make_handler({42}, _make_resolved(), "sp", memory)
+        update = _make_update(42, "ping")
+        await handler(update, MagicMock())
+
+        sent = update.effective_message.reply_text.await_args.args[0]
+        assert len(sent) <= 4096, f"sent message exceeds Telegram limit: {len(sent)}"
+        assert sent.endswith(tg._TRUNCATION_MARKER)
+        # Memory and the wire MUST agree — otherwise next turn re-conditions
+        # on text the user never saw (P2-1 motivation).
+        stored = memory.append.call_args_list[1].args[2]
+        assert stored == sent
+
+    async def test_truncation_at_exactly_max_passes_through(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Boundary: exactly 4096 chars is valid; do not truncate."""
+        exact = "B" * 4096
+        memory = MagicMock()
+        memory.history.return_value = []
+        monkeypatch.setattr(tg.runtime, "reply", AsyncMock(return_value=exact))
+
+        handler = _make_handler({42}, _make_resolved(), "sp", memory)
+        await handler(_make_update(42, "p"), MagicMock())
+
+        update_call = memory.append.call_args_list[1].args
+        assert update_call == (42, "assistant", exact)
+
+
+class TestRegisterSecretIntegration:
+    """security-audit P2-3: run() must register the in-use token with the scrubber."""
+
+    def test_run_registers_token_with_scrubber(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agent import logging as alog
+        from agent.config import AgentGroupSpec, Config, ProviderSpec
+
+        token = "RUNTIME_REGISTERED_TOKEN_VALUE_4242"
+        # Ensure clean baseline — token must NOT already be registered
+        if token in alog._SECRETS:
+            alog._SECRETS.remove(token)
+
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", token)
+        monkeypatch.setenv("ALLOWED_TELEGRAM_CHAT_IDS", "42")
+
+        cfg = Config(
+            providers={
+                "p": ProviderSpec(
+                    kind="openai_compatible", base_url="https://x", allowed_models=["m"]
+                )
+            },
+            agents={
+                "personal-assistant": AgentGroupSpec(model="p/m", system_prompt="sp"),
+            },
+        )
+        fake_app = MagicMock()
+        fake_builder = MagicMock()
+        fake_builder.token.return_value = fake_builder
+        fake_builder.build.return_value = fake_app
+        monkeypatch.setattr(tg, "ApplicationBuilder", lambda: fake_builder)
+
+        try:
+            tg.run(cfg, lambda c, r: _make_resolved(), MagicMock())
+            assert token in alog._SECRETS, (
+                "run() must call register_secret(token) so traceback scrubbing "
+                "covers tokens loaded after agent.logging import"
+            )
+        finally:
+            if token in alog._SECRETS:
+                alog._SECRETS.remove(token)
+
+
+class TestRegisterSecretAPI:
+    """The public register_secret() API itself."""
+
+    def test_idempotent(self) -> None:
+        from agent import logging as alog
+        s = "TEST_SECRET_IDEMPOTENT_001"
+        try:
+            alog.register_secret(s)
+            alog.register_secret(s)
+            assert alog._SECRETS.count(s) == 1
+        finally:
+            if s in alog._SECRETS:
+                alog._SECRETS.remove(s)
+
+    def test_empty_value_ignored(self) -> None:
+        from agent import logging as alog
+        before = len(alog._SECRETS)
+        alog.register_secret("")
+        assert len(alog._SECRETS) == before
+
+    def test_non_string_rejected(self) -> None:
+        """codex-review L4-P2 P1: non-str input must be rejected, not stored.
+
+        A bytes/bool/None secret would later crash text.replace() inside
+        _scrub_text and break the scrubber.
+        """
+        from agent import logging as alog
+        before = list(alog._SECRETS)
+        for bad in (None, 12345, b"bytes-secret", True, ["list"]):
+            alog.register_secret(bad)  # type: ignore[arg-type]
+        assert alog._SECRETS == before, (
+            f"non-str values must not be appended; got {alog._SECRETS!r}"
+        )
+
+    def test_concurrent_writers_no_lost_updates(self) -> None:
+        """codex-review L4-P2 round 2 P1: two concurrent register_secret calls
+        must not lose each other's secret. The repro: patch sorted() to release
+        the GIL via time.sleep so the second writer can interleave with the
+        first writer's read-modify-write. Without the lock, only the
+        last-storer's value survives."""
+        import builtins
+        import threading
+        import time
+        from agent import logging as alog
+
+        names = ("AAAA_C001", "BBBB_C001", "CCCC_C001")
+        try:
+            real_sorted = builtins.sorted
+
+            def slow_sorted(iterable, *args, **kwargs):
+                time.sleep(0.005)
+                return real_sorted(iterable, *args, **kwargs)
+
+            # Pre-clean
+            for n in names:
+                if n in alog._SECRETS:
+                    alog._SECRETS.remove(n)
+            baseline = list(alog._SECRETS)
+
+            builtins.sorted = slow_sorted
+            try:
+                barrier = threading.Barrier(len(names))
+
+                def add(name: str) -> None:
+                    barrier.wait()
+                    alog.register_secret(name)
+
+                threads = [threading.Thread(target=add, args=(n,)) for n in names]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
+            finally:
+                builtins.sorted = real_sorted
+
+            for n in names:
+                assert n in alog._SECRETS, (
+                    f"register_secret lost concurrent write of {n!r}; "
+                    f"surviving _SECRETS={alog._SECRETS!r}"
+                )
+            # Sort invariant still holds after concurrent writes
+            lens = [len(s) for s in alog._SECRETS]
+            assert lens == sorted(lens, reverse=True)
+        finally:
+            for n in names:
+                if n in alog._SECRETS:
+                    alog._SECRETS.remove(n)
+
+    def test_register_preserves_full_sort_atomically(self) -> None:
+        """codex-review L4-P2 P1: every observable _SECRETS state must be
+        fully sorted longest-first. A naive append-then-sort would expose
+        an unsorted intermediate; the fix rebuilds + rebinds atomically."""
+        from agent import logging as alog
+        # Snapshot, then run a sequence of mixed-length registrations and
+        # check the invariant after each one.
+        names = ["AAA_S001", "AAA_S001_LONGER_002", "AAA_S001_LONGEST_VAR_003"]
+        try:
+            for n in names:
+                alog.register_secret(n)
+                lens = [len(s) for s in alog._SECRETS]
+                assert lens == sorted(lens, reverse=True), (
+                    f"_SECRETS not sorted longest-first after register({n!r}): {lens}"
+                )
+        finally:
+            for n in names:
+                if n in alog._SECRETS:
+                    alog._SECRETS.remove(n)
+
+    def test_sorted_longest_first_after_register(self) -> None:
+        """Prefix-leak invariant from _collect_secrets must be preserved."""
+        from agent import logging as alog
+        short = "AAA_SHORT_777"
+        long_ = "AAA_SHORT_777_LONGER_SUFFIX_888"
+        try:
+            alog.register_secret(short)
+            alog.register_secret(long_)
+            i_long = alog._SECRETS.index(long_)
+            i_short = alog._SECRETS.index(short)
+            assert i_long < i_short, (
+                "longer secret must sort before shorter one to prevent prefix leak"
+            )
+        finally:
+            for s in (short, long_):
+                if s in alog._SECRETS:
+                    alog._SECRETS.remove(s)
