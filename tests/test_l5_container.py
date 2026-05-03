@@ -216,14 +216,35 @@ class TestSecurityDocCompleteness:
     """
 
     def test_all_required_controls_documented(self) -> None:
+        """Required controls must appear in the BODY (above Known deferrals).
+
+        Audit P2-3 strengthening: a previous version only checked global
+        presence, so a future edit could silently demote a required control
+        into the "Known deferrals" section and the test would still pass.
+        Now we slice at "## Known deferrals" and assert (a) every required
+        ID appears in the body and (b) NO required ID has been demoted.
+        """
         from pathlib import Path
         spec = Path("docs/discovery/container/SECURITY.md").read_text()
 
+        body = spec.split("## Known deferrals", 1)[0]
+        deferrals = (
+            spec.split("## Known deferrals", 1)[1]
+            if "## Known deferrals" in spec
+            else ""
+        )
+
         required = list(range(1, 8)) + list(range(10, 19))  # 1-7, 10-18
-        missing = [n for n in required if f"| {n} |" not in spec]
+        missing = [n for n in required if f"| {n} |" not in body]
         assert not missing, (
-            f"SECURITY.md is missing required control rows: {missing}. "
-            f"Every required control (1-7, 10-18) must appear in the table."
+            f"Required controls missing from main body: {missing}. "
+            f"Every required control (1-7, 10-18) must appear in the table "
+            f"above the 'Known deferrals' section."
+        )
+        demoted = [n for n in required if f"| {n} |" in deferrals]
+        assert not demoted, (
+            f"Required controls silently demoted to Known deferrals: {demoted}. "
+            f"Demotion must be intentional and documented as a spec change."
         )
 
     def test_all_deferred_controls_in_known_deferrals(self) -> None:

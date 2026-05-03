@@ -1,17 +1,18 @@
-"""CLI entrypoint — wires Config + Memory + Connector.run.
+"""CLI entrypoint. Invoked as `python -m agent` or via the `agent` console script.
 
-Invoked as `python -m agent` or via the `agent` console script (declared in
-pyproject.toml). Inside the container, entrypoint.sh calls `exec agent`.
+Composes Config → personal-assistant agent group → ResolvedProvider → Memory →
+connector.run() and converts every startup-failure class into one CRITICAL log.
 """
 from __future__ import annotations
 
+import os
 import sqlite3
 import sys
 from pathlib import Path
 
 from agent.config import ConfigError, load_config
 from agent.connectors.telegram import run as connector_run
-from agent.logging import get_logger
+from agent.logging import get_logger, register_secret
 from agent.memory import Memory, default_db_path
 from agent.registry import resolve
 
@@ -19,11 +20,7 @@ _DEFAULT_CONFIG_PATH = Path("/config/config.yaml")
 
 
 def main(config_path: Path = _DEFAULT_CONFIG_PATH) -> int:
-    """Compose the agent and start the polling loop. Returns exit code.
-
-    SYNCHRONOUS connector_run (eng-review P1-2): pgttb 22.x's run_polling
-    owns its event loop; asyncio.run wrapping would crash.
-    """
+    """Compose + run. Returns exit code. SYNC connector_run (eng-review P1-2)."""
     log = get_logger("agent.main")
     try:
         config = load_config(config_path)
@@ -36,6 +33,14 @@ def main(config_path: Path = _DEFAULT_CONFIG_PATH) -> int:
                 f"defined groups: {list(config.agents.keys())}"
             )
         resolved = resolve(config, agent_spec.model)
+        # Drive secret registration from config, not env-var name patterns.
+        # The L0 _collect_secrets() only catches *_API_KEY; a self-hoster
+        # using OPENAI_TOKEN, GROQ_KEY, HF_TOKEN, etc. would otherwise
+        # have their key NOT registered with the scrubber and could leak
+        # in tracebacks (security-audit L5 P2-1).
+        for provider in config.providers.values():
+            if provider.api_key_env:
+                register_secret(os.environ.get(provider.api_key_env, ""))
     except (ConfigError, NotImplementedError) as e:
         log.critical("Startup failed: %s", e)
         return 1

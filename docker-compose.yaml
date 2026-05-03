@@ -27,15 +27,29 @@ services:
       - agent-data:/data                                # control 3 (writable scratch via named volume)
       - ./config.yaml:/config/config.yaml:ro            # control 15 (config read-only)
     tmpfs:
-      - /tmp:mode=1777                 # writable scratch for stdlib tempfile + HOME=/tmp redirects
+      # noexec,nosuid,nodev = defense-in-depth (audit P3-2): even with
+      # cap_drop ALL + no-new-privileges already preventing setuid escalation,
+      # adding these flags blocks a future bug or LLM-tool that downloads a
+      # binary into /tmp and tries to exec it. size=64m caps memory-DoS via
+      # /tmp fill (default tmpfs size = 50% of host RAM).
+      - /tmp:mode=1777,noexec,nosuid,nodev,size=64m
     networks:
-      - agent-net                      # control 10 (egress via bridge), control 11 (no host net)
+      - agent-net                      # control 11 (no host net) — bridge confines, NOT egress allowlist (see SECURITY.md control 10b)
     # Resource limits — TOP-LEVEL keys, NOT under `deploy.resources.limits`.
     # `deploy.*` is Swarm-only and silently ignored by `docker compose up`,
     # which would have left limits as unlimited. codex-review L5-Step3 P1.
     cpus: 1.0                          # control 13
     mem_limit: 512m
     pids_limit: 100
+    # Log rotation (audit P2-5): without this, restart: unless-stopped on a
+    # bad config crash-loops and fills /var/lib/docker/containers/*/json.log
+    # in seconds on a small VPS (Docker default backoff doubles 100ms→1m,
+    # so the early window is high-volume). Cap each container at 30MB total.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   agent-net:

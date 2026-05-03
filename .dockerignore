@@ -1,0 +1,48 @@
+# What NEVER goes into the build context.
+#
+# The Dockerfile uses surgical COPY (pyproject.toml + agent/ only), but a
+# forker who later adds `COPY . .` would otherwise leak secrets, .git
+# history, or test fixtures into the image. This file is the safety net.
+# Keep it in sync with .gitignore — anything gitignored should be docker-
+# ignored too. Audit P1-1.
+
+# Secrets and live config — never bake into image
+.env
+.env.*
+config.yaml
+
+# Local data + caches
+data/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+
+# Source control
+.git
+.gitignore
+.gitattributes
+
+# Virtual environments
+.venv/
+venv/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Documentation + tests are not needed in the runtime image
+docs/
+tests/
+
+# Editor/OS noise
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# CI / local dev only
+.github/
+Makefile
