@@ -1,12 +1,13 @@
-"""Tests for L3 Step 1: Memory schema initialization and append."""
+"""Tests for L3 Step 1 + Step 2: Memory schema, append, history, default path."""
 from __future__ import annotations
 
 import logging
 import sqlite3
+from pathlib import Path
 
 import pytest
 
-from agent.memory import Memory
+from agent.memory import Memory, default_db_path
 
 
 class TestMemoryInit:
@@ -124,3 +125,90 @@ class TestSQLInjectionSafety:
         with sqlite3.connect(db) as conn:
             count = conn.execute("SELECT COUNT(*) FROM turns").fetchone()[0]
         assert count == 2, f"Expected 2 rows after second append, got {count}"
+
+
+class TestMemoryHistory:
+    """L3 Step 2: history() retrieval — ordering, limits, isolation, empty."""
+
+    def test_history_returns_all_turns_chronological(self, tmp_path) -> None:
+        """Append 5 turns → history(1) returns 5 in oldest-first order."""
+        mem = Memory(tmp_path / "agent.sqlite")
+        expected = [
+            ("user", f"msg-{i}") for i in range(5)
+        ]
+        for role, content in expected:
+            mem.append(chat_id=1, role=role, content=content)
+
+        result = mem.history(chat_id=1)
+
+        assert len(result) == 5
+        for i, turn in enumerate(result):
+            assert turn["role"] == expected[i][0]
+            assert turn["content"] == expected[i][1]
+
+    def test_history_limit_returns_most_recent(self, tmp_path) -> None:
+        """Append 25 turns → history(2, limit=20) returns exactly 20, most recent, oldest-first."""
+        mem = Memory(tmp_path / "agent.sqlite")
+        for i in range(25):
+            mem.append(chat_id=2, role="user", content=f"turn-{i}")
+
+        result = mem.history(chat_id=2, limit=20)
+
+        assert len(result) == 20
+        # The 20 most recent are turns 5..24; oldest of that set is turn-5
+        assert result[0]["content"] == "turn-5"
+        assert result[-1]["content"] == "turn-24"
+
+    def test_history_isolates_by_chat_id(self, tmp_path) -> None:
+        """Turns from chat_id=2 must not appear in history(1)."""
+        mem = Memory(tmp_path / "agent.sqlite")
+        mem.append(chat_id=1, role="user", content="chat1-msg")
+        mem.append(chat_id=2, role="user", content="chat2-msg")
+
+        result = mem.history(chat_id=1)
+
+        assert len(result) == 1
+        assert result[0]["content"] == "chat1-msg"
+
+    def test_history_empty_for_unknown_chat_id(self, tmp_path) -> None:
+        """history(999) returns [] without raising when no turns exist."""
+        mem = Memory(tmp_path / "agent.sqlite")
+        result = mem.history(chat_id=999)
+        assert result == []
+
+    def test_history_persists_across_restart(self, tmp_path) -> None:
+        """AC-5: dropping Memory and constructing a new one at the same path
+        must not wipe existing data (CREATE TABLE IF NOT EXISTS is idempotent)."""
+        db = tmp_path / "agent.sqlite"
+        mem = Memory(db)
+        mem.append(chat_id=1, role="user", content="persistent-a")
+        mem.append(chat_id=1, role="assistant", content="persistent-b")
+        mem.append(chat_id=1, role="user", content="persistent-c")
+        del mem  # simulate container restart
+
+        mem2 = Memory(db)
+        result = mem2.history(chat_id=1)
+
+        assert len(result) == 3
+        assert result[0]["content"] == "persistent-a"
+        assert result[1]["content"] == "persistent-b"
+        assert result[2]["content"] == "persistent-c"
+
+
+class TestDefaultDbPath:
+    """L3 Step 2: default_db_path() returns correct Path based on env var."""
+
+    def test_default_path_when_env_unset(self, monkeypatch) -> None:
+        """With AGENT_DATA_DIR unset, returns Path('/data/agent.sqlite')."""
+        monkeypatch.delenv("AGENT_DATA_DIR", raising=False)
+        assert default_db_path() == Path("/data/agent.sqlite")
+
+    def test_default_path_with_custom_env(self, monkeypatch) -> None:
+        """With AGENT_DATA_DIR='/custom', returns Path('/custom/agent.sqlite')."""
+        monkeypatch.setenv("AGENT_DATA_DIR", "/custom")
+        assert default_db_path() == Path("/custom/agent.sqlite")
+
+    def test_return_type_is_path_not_str(self, monkeypatch) -> None:
+        """eng-review T3: default_db_path() must return Path, not str."""
+        monkeypatch.delenv("AGENT_DATA_DIR", raising=False)
+        assert isinstance(default_db_path(), Path)
