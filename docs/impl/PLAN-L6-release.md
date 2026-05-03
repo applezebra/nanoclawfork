@@ -39,6 +39,9 @@ This flip is the LAST action of L6, not the first action of L0. Original CONTRAC
 | LOC counting script | `scripts/loc.sh` |
 | Root README | `README.md` |
 | Completed attribution file | `NOTICES.md` |
+| MIT license file | `LICENSE` |
+| Security disclosure policy | `SECURITY.md` |
+| Branch protection on `main` | applied via `gh api` (no file in repo) |
 
 ---
 
@@ -49,6 +52,12 @@ This flip is the LAST action of L6, not the first action of L0. Original CONTRAC
 - **`README.md`** — AC-8: "When a reader unfamiliar with the project reads the 'What works' section, every statement corresponds to a passing acceptance criteria item." IMPACT-ANALYSIS §L6: "README 'What works' section quoting CONTRACT-0.1.md verbatim." This is the public face of the project from the first commit. The "Out of scope" section must match the "Explicitly NOT in 0.x" list in CONTRACT-0.1.md verbatim to prevent misleading readers about what the project does.
 
 - **`NOTICES.md`** — NFR-LA2: "Any code lifted from `qwibitai/nanoclaw` must be attributed in `NOTICES.md`." The CONNECTOR-AUDIT verdict is "DO NOT LIFT" for the connector, so no NanoClaw code was lifted. However, `NOTICES.md` must still list all third-party MIT-licensed dependencies (particularly `python-telegram-bot`) and note that NanoClaw was consulted as a design reference with no code lifted. This is the audit-clean attribution posture.
+
+- **`LICENSE`** — `pyproject.toml` already declares `license = {text = "MIT"}` but a real `LICENSE` file at the repo root is what GitHub indexes for the license badge and what most license scanners look for. Without it, the project reads as "claims MIT but doesn't actually ship the license text" — which is a real legal grey area for downstream users. Standard MIT text, copyright `2026 Anson Zeall`.
+
+- **`SECURITY.md`** — The whole project's pitch is "secure container-isolated agent." Going public without a vulnerability disclosure policy is a credibility gap: researchers who find a hole have no documented way to report it privately, so they either drop it on Twitter or open a public issue. SECURITY.md documents: where to email (security@... — Anson decides), expected initial response time (target 72h), what's in scope (the agent code, the runtime, the framing logic), what's out of scope (downstream provider bugs, host OS issues). No PGP key required at v0.1.
+
+- **Branch protection on `main`** — Without it, anyone with push access (currently just Anson) can force-push, delete the branch, or merge without review. Once the repo is public, branch protection is the difference between "casual hobby project" and "operates with discipline." Configured via `gh api` to require: pull request before merge, no force-push, no deletion, conversation resolution before merge. Status check requirements deferred to post-launch (no CI yet).
 
 ---
 
@@ -193,13 +202,92 @@ Also run: `git grep -i "anthropic" agent/` — this must return zero hits (or on
 
 **Tests to add:** None (Markdown file and shell grep). These are manual verification steps documented in the acceptance check.
 
-**Acceptance check before closing L6:**
+**Acceptance check before proceeding to Step 4:**
 - `bash scripts/loc.sh` exits 0, total ≤ 800, all modules within caps.
 - `git grep "nanoclawfork" agent/` hits only `agent/__about__.py`.
 - `git grep "import anthropic" agent/` returns no hits.
 - `README.md` "What works" has 10 items matching CONTRACT verbatim.
 - `NOTICES.md` lists all top-level dependencies with licenses.
 - `NOTICES.md` has the design-reference note for `qwibitai/nanoclaw`.
+
+---
+
+### Step 4 — OSS minimum (LICENSE + SECURITY.md)
+
+**Files touched (≤2):** `LICENSE`, `SECURITY.md`. Both at repo root. Doc files — no LOC budget impact.
+
+**What to write:**
+
+`LICENSE` — verbatim MIT license text (https://opensource.org/license/mit), `Copyright (c) 2026 Anson Zeall`. No deviations from the standard text. GitHub auto-detects this and shows the "MIT License" badge on the repo header.
+
+`SECURITY.md` — short and honest. Sections:
+- **Supported versions:** `0.1.x` (only). Pre-1.0; no LTS.
+- **Reporting a vulnerability:** email `<address Anson chooses — placeholder TBD until Anson confirms>`. Do NOT open public issues for security bugs. Initial response within 72 hours.
+- **In scope:** the agent runtime, prompt-injection framing, container isolation posture, secrets handling, the SQLite memory layer.
+- **Out of scope:** bugs in upstream providers (DeepInfra, OpenAI, Anthropic), bugs in `python-telegram-bot`, host OS issues, social engineering of bot operators.
+- **No bug bounty at v0.1.** Recognition in `SECURITY-HALL-OF-FAME.md` for accepted reports.
+
+**Acceptance check before proceeding to Step 5:**
+- `LICENSE` exists, contains the literal string "MIT License" and "Copyright (c) 2026 Anson Zeall".
+- `SECURITY.md` exists with all 5 sections.
+- GitHub repo page shows "MIT License" badge (verify after first push).
+
+---
+
+### Step 5 — Branch protection on main
+
+**Files touched (0 in repo):** This step runs `gh api` commands; produces no files. The configuration lives on GitHub, not in the repo.
+
+**What to run** (executed manually — NOT automated, because branch protection changes are sensitive and should be deliberate):
+
+```bash
+gh api -X PUT /repos/applezebra/nanoclawfork/branches/main/protection \
+  -f required_pull_request_reviews.required_approving_review_count=0 \
+  -f required_pull_request_reviews.dismiss_stale_reviews=true \
+  -F enforce_admins=false \
+  -F required_status_checks=null \
+  -F restrictions=null \
+  -F allow_force_pushes=false \
+  -F allow_deletions=false \
+  -F required_conversation_resolution=true
+```
+
+Why `required_approving_review_count=0`: Anson is the only committer at v0.1; requiring 1 review would block every PR. The protection still requires a PR (no direct push to main), no force-push, no deletion, and conversation resolution before merge — that's the meaningful safety. Once a second committer joins, bump to 1.
+
+Why `enforce_admins=false`: Anson can override in emergencies (e.g., reverting a bad merge). With one committer, admin enforcement is just self-flagellation.
+
+Why `required_status_checks=null`: No CI exists at v0.1. Add status checks once GitHub Actions is set up post-launch.
+
+**Acceptance check before proceeding to Step 6:**
+- `gh api /repos/applezebra/nanoclawfork/branches/main/protection` returns 200 (not 404).
+- Test: try `git push --force origin main` — must be rejected by the remote.
+
+---
+
+### Step 6 — Flip to public
+
+**Files touched (0):** Single `gh repo edit` command. This is the LAST action of the entire 0.1 build.
+
+**Pre-conditions** (ALL must hold — verify manually):
+1. L0–L5 lanes all closed and committed.
+2. L6 Steps 1–5 complete.
+3. security-auditor agent has been run on the full repo and returned no P1 findings. (If P1s exist, fix them before this step. Do not flip to public with known P1s.)
+4. README "What works" verified against every CONTRACT acceptance item.
+5. `git grep "nanoclawfork" agent/` returns hits ONLY in `agent/__about__.py`.
+6. `git log --all --oneline | grep -iE "(secret|token|key|password|TODO: remove|XXX|FIXME)"` reviewed — no leaked secrets, no embarrassing TODOs.
+
+**What to run:**
+
+```bash
+gh repo edit applezebra/nanoclawfork --visibility public --accept-visibility-change-consequences
+```
+
+Then verify GitHub recognizes:
+- The MIT license badge appears on the repo page.
+- `SECURITY.md` is linked from the repo's "Security" tab.
+- Branch protection is preserved across the visibility change (it should be, but confirm).
+
+**No reverting.** Once public, the git history is permanently visible (GitHub caches forks and the Wayback Machine indexes within hours). Treat this step as a one-way door. The Step 6 pre-conditions exist precisely because this step is irreversible in practice.
 
 ---
 
@@ -217,6 +305,11 @@ L6 is closed when ALL of the following are true:
 | `git grep "import anthropic" agent/` returns zero hits | AC-4 final verification |
 | `NOTICES.md` lists all top-level deps with licenses | NFR-LA2 |
 | `NOTICES.md` notes `qwibitai/nanoclaw` as design reference with no code lifted | NFR-LA2 |
+| `LICENSE` file at repo root, MIT text, copyright Anson Zeall 2026 | OSS minimum (Step 4) |
+| `SECURITY.md` at repo root with all 5 sections | OSS minimum (Step 4) |
+| `gh api /repos/applezebra/nanoclawfork/branches/main/protection` returns 200 | OSS minimum (Step 5) |
+| `git push --force origin main` rejected by remote (proves protection is live) | OSS minimum (Step 5) |
+| `gh repo view applezebra/nanoclawfork --json visibility` returns `PUBLIC` AFTER Steps 1–5 + security-auditor pass | Step 6 |
 
 ---
 
