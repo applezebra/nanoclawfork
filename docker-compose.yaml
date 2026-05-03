@@ -1,0 +1,45 @@
+# kayaclaw 0.1 — single-service compose. The compose file IS the security
+# enforcement point: read-only root FS, dropped capabilities, no-new-privileges,
+# explicit mount allowlist, resource limits. All 16 required SECURITY.md
+# controls for 0.1 are implemented here or in the Dockerfile.
+
+services:
+  agent:
+    build: .
+    image: kayaclaw:0.1
+    restart: unless-stopped
+    read_only: true                    # SECURITY.md control 2
+    cap_drop: [ALL]                    # SECURITY.md control 6
+    security_opt:
+      - no-new-privileges:true         # SECURITY.md control 7
+    environment:
+      # Names only for SECRETS — values come from .env (gitignored).
+      # SECURITY.md control 14. See .env.example for the required keys.
+      - TELEGRAM_BOT_TOKEN
+      - ALLOWED_TELEGRAM_CHAT_IDS      # eng-review L5 P1-1: chat_id, NOT user_id
+      - DEEPINFRA_API_KEY
+      # Config knobs (not secrets) — ${VAR:-default} lets .env override
+      # while preserving a sensible default. codex-review L5-Step3 P1: a
+      # bare `KEY=value` form would block .env overrides entirely.
+      - AGENT_DATA_DIR=${AGENT_DATA_DIR:-/data}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - agent-data:/data                                # control 3 (writable scratch via named volume)
+      - ./config.yaml:/config/config.yaml:ro            # control 15 (config read-only)
+    tmpfs:
+      - /tmp:mode=1777                 # writable scratch for stdlib tempfile + HOME=/tmp redirects
+    networks:
+      - agent-net                      # control 10 (egress via bridge), control 11 (no host net)
+    # Resource limits — TOP-LEVEL keys, NOT under `deploy.resources.limits`.
+    # `deploy.*` is Swarm-only and silently ignored by `docker compose up`,
+    # which would have left limits as unlimited. codex-review L5-Step3 P1.
+    cpus: 1.0                          # control 13
+    mem_limit: 512m
+    pids_limit: 100
+
+networks:
+  agent-net:
+    driver: bridge
+
+volumes:
+  agent-data:                          # named volume survives `docker compose down` (FR-ME2)

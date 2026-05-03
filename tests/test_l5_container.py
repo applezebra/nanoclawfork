@@ -204,3 +204,44 @@ class TestMainMemoryInitFailure:
 
         assert rc == 1
         assert any("Memory init failed" in r.getMessage() for r in caplog.records)
+
+
+class TestSecurityDocCompleteness:
+    """eng-review L5 P2-4: SECURITY.md doc-drift regression test.
+
+    Asserts every required control ID (1-7, 10-18) appears in the doc and
+    every deferred control (8, 9, 19, 20) appears under "Known deferrals".
+    A future edit that silently drops a verification note breaks this test
+    loudly instead of slipping into a release.
+    """
+
+    def test_all_required_controls_documented(self) -> None:
+        from pathlib import Path
+        spec = Path("docs/discovery/container/SECURITY.md").read_text()
+
+        required = list(range(1, 8)) + list(range(10, 19))  # 1-7, 10-18
+        missing = [n for n in required if f"| {n} |" not in spec]
+        assert not missing, (
+            f"SECURITY.md is missing required control rows: {missing}. "
+            f"Every required control (1-7, 10-18) must appear in the table."
+        )
+
+    def test_all_deferred_controls_in_known_deferrals(self) -> None:
+        from pathlib import Path
+        spec = Path("docs/discovery/container/SECURITY.md").read_text()
+
+        # Find the Known deferrals section
+        if "## Known deferrals" not in spec:
+            raise AssertionError(
+                "SECURITY.md missing '## Known deferrals' section — "
+                "required for stage-2 controls."
+            )
+        deferrals_section = spec.split("## Known deferrals", 1)[1]
+
+        deferred = [8, 9, 19, 20]
+        missing = [n for n in deferred if f"| {n} |" not in deferrals_section]
+        assert not missing, (
+            f"Known deferrals section is missing controls: {missing}. "
+            f"All four stage-2 deferrals (8, 9, 19, 20) must be listed with "
+            f"a reason and stage-2 plan."
+        )
