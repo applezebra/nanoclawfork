@@ -140,9 +140,9 @@ tests/test_l5_container.py  (Step 1 portion)
 **Tests to add:** None at this step (Dockerfile and shell script cannot be unit-tested in Python). The acceptance check for this step is a Docker build and `docker inspect` pass in Step 3.
 
 **Acceptance check before proceeding to Step 3:**
-- `docker build -t nanoclawfork:dev .` completes without error.
-- `docker image inspect nanoclawfork:dev` shows no unexpected layers.
-- The runtime image does not contain `gcc`, `make`, or `pip` (run `docker run --rm nanoclawfork:dev which gcc` → non-zero exit).
+- `docker build -t kayaclaw:dev .` completes without error.
+- `docker image inspect kayaclaw:dev` shows no unexpected layers.
+- The runtime image does not contain `gcc`, `make`, or `pip` (run `docker run --rm kayaclaw:dev which gcc` → non-zero exit).
 
 ---
 
@@ -163,7 +163,7 @@ tests/test_l5_container.py  (Step 1 portion)
 services:
   agent:
     build: .
-    image: nanoclawfork:0.1
+    image: kayaclaw:0.1
     restart: unless-stopped
     read_only: true           # SECURITY.md control 2
     cap_drop: [ALL]           # SECURITY.md control 6
@@ -217,7 +217,7 @@ Env var convention: list env var names without values in the compose file. The v
 - Assert `Config.User` is `"10001"` or `"agent"` (non-root).
 - Assert `HostConfig.SecurityOpt` includes `"no-new-privileges:true"`.
 - `docker compose down && up` round-trip: assert the SQLite file exists and contains prior turns (AC-5 integration test — manual verification in 0.1, scripted in 0.2).
-- Python libs do not write to the read-only root FS: run `docker run --rm nanoclawfork:dev python -c "import importlib; print('ok')"` — assert exit 0 (proves the read-only FS does not break Python import machinery when `/tmp` is a tmpfs).
+- Python libs do not write to the read-only root FS: run `docker run --rm kayaclaw:dev python -c "import importlib; print('ok')"` — assert exit 0 (proves the read-only FS does not break Python import machinery when `/tmp` is a tmpfs).
 
 **Acceptance check before closing L5:**
 - `docker compose up` starts without error.

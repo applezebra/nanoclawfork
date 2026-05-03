@@ -45,7 +45,7 @@ L0 creates the importable `agent/` package, establishes the two-file brand-decou
 
 - **`agent/__init__.py`** — Makes `agent` an importable Python package. All downstream lanes do `from agent.xxx import yyy`; without this file, those imports fail.
 
-- **`agent/__about__.py`** — CONTRACT item 8 requires the brand name to live in exactly two files. This is one of them. Exporting `__brand__`, `__slug__`, and `__version__` as constants enables the brand-leak grep check in L6 (IMPACT-ANALYSIS §L6 acceptance: `git grep nanoclawfork` hits only the two brand files and docs).
+- **`agent/__about__.py`** — CONTRACT item 8 requires the brand name to live in exactly two files. This is one of them. Exporting `__brand__`, `__slug__`, and `__version__` as constants enables the brand-leak grep check in L6 (IMPACT-ANALYSIS §L6 acceptance: `git grep kayaclaw` hits only the two brand files and docs).
 
 - **`agent/logging.py`** — CONNECTOR-AUDIT finding #1: "The bot token must never appear in any log line, ever." IMPACT-ANALYSIS §L0 public interface specifies a `get_logger(name)` factory that installs a scrubbing filter. Every lane is required to use `get_logger` rather than `logging.getLogger` directly (IMPACT-ANALYSIS §5 cross-cutting concern: "Token-scrubbing logger — must use `get_logger`, never `print`, never `logging.getLogger` directly").
 
@@ -72,11 +72,11 @@ L0 creates the importable `agent/` package, establishes the two-file brand-decou
 
 **What to write:**
 
-`agent/__init__.py` — empty or a single-line docstring identifying this as the generic internal package name. No imports. No logic. The file exists only to make the directory a package. Do not put `nanoclawfork` in this file — the brand belongs only in `__about__.py`.
+`agent/__init__.py` — empty or a single-line docstring identifying this as the generic internal package name. No imports. No logic. The file exists only to make the directory a package. Do not put `kayaclaw` in this file — the brand belongs only in `__about__.py`.
 
 `agent/__about__.py` — define three module-level string constants:
-- `__brand__`: the working project name (e.g. `"nanoclawfork"`)
-- `__slug__`: a URL-safe lowercase version of the same (e.g. `"nanoclawfork"`)
+- `__brand__`: the working project name (e.g. `"kayaclaw"`)
+- `__slug__`: a URL-safe lowercase version of the same (e.g. `"kayaclaw"`)
 - `__version__`: `"0.1.0"`
 
 These three names are the only place the brand string appears in `agent/` source. No conditional logic, no imports.
@@ -98,7 +98,7 @@ tests/test_l0_scaffolding.py  (Step 1 portion)
 
 - Import `agent` — assert no ImportError.
 - Import `agent.__about__` — assert `__brand__` is a non-empty string, `__version__` starts with `"0.1"`.
-- Assert `"nanoclawfork"` does not appear in the string `agent.__init__.__file__`'s source text (proxy for the brand-leak rule; the real grep check is in L6).
+- Assert `"kayaclaw"` does not appear in the string `agent.__init__.__file__`'s source text (proxy for the brand-leak rule; the real grep check is in L6).
 - Assert `anthropic` is not in declared dependencies. Read the dist name from `agent.__about__.__slug__` (do NOT hardcode the brand string in tests, per NFR-BD): `importlib.metadata.requires(__about__.__slug__)` and scan the list.
 - **Transitive-dep check (eng-review fix T2):** run `subprocess.run(["pip", "list", "--format=freeze"], capture_output=True, text=True)` and assert no line starts with `anthropic==`. This catches the case where `anthropic` arrives as a transitive dependency of `pydantic-ai` or any other top-level dep. Belt + suspenders for AC-4.
 
@@ -201,7 +201,7 @@ L0 is closed when ALL of the following are true:
 |---|---|
 | `python -m pytest tests/test_l0_scaffolding.py` passes with zero failures | Internal gate |
 | `from agent.__about__ import __brand__` returns the expected string | CONTRACT item 8, NFR-BD1 |
-| `grep -r "nanoclawfork" agent/` returns hits ONLY in `agent/__about__.py` | NFR-BD2 |
+| `grep -r "kayaclaw" agent/` returns hits ONLY in `agent/__about__.py` | NFR-BD2 |
 | Logger scrubs a known fake token from captured log output | CONNECTOR-AUDIT finding #1; R4 mitigation |
 | No provider-vendor SDK (anthropic, openai, etc.) is in `[project].dependencies` | Agnostic guarantee (CONTRACT thesis) |
 | Logger scrubs tokens in tracebacks (`exc_text`) and stack_info, not just messages | CONNECTOR-AUDIT P2-1 (eng-review T1) |

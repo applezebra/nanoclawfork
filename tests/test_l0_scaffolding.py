@@ -59,7 +59,7 @@ def test_no_provider_sdk_is_a_hard_dependency():
     Concretely: our pyproject.toml must not list provider-vendor SDKs (anthropic,
     openai, google-generativeai, etc.) as hard dependencies. If any are needed
     for a specific provider integration, they belong in optional `[project.optional-dependencies]`
-    extras (e.g. `nanoclawfork[anthropic]`) — never in the base install.
+    extras (e.g. `kayaclaw[anthropic]`) — never in the base install.
     """
     with open(PROJECT_ROOT / "pyproject.toml", "rb") as fh:
         pyproject = tomllib.load(fh)

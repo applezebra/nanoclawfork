@@ -10,7 +10,7 @@ contract revision, not into the build.
 
 ## Project identity
 
-- **Working name:** `nanoclawfork` (final brand deferred — see `docs/discovery/BRANDING.md`)
+- **Brand name:** `kayaclaw` (locked 2026-05-03 — Singapore-rooted, impartial; .ai and .com both registered. Original working name `nanoclawfork` retained in some historical references and the local working dir for context continuity.)
 - **Version target:** `0.1.0`
 - **License:** MIT
 - **Public posture:** **private repo during build; flip to public ONLY when 0.1 is feature-complete and security-audited.** (Updated 2026-05-03 by Anson — original contract said "public from first commit"; corrected to avoid shipping mid-build code with unaudited Telegram input surface.)

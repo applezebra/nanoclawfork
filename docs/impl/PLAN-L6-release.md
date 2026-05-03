@@ -19,7 +19,7 @@
 
 L6 makes the repository public-presentable and its claims independently verifiable. It produces the README (with "What works" that matches CONTRACT acceptance items exactly), completes `NOTICES.md` with final dependency attributions, writes `scripts/loc.sh` that counts effective Python LOC per module, and runs the brand-leak grep as a final gate. The LOC count in the README must reflect the actual measured count from `scripts/loc.sh` after all lanes are merged.
 
-**Final action of L6 (added 2026-05-03 per Anson):** flip the repo from private to public via `gh repo edit applezebra/nanoclawfork --visibility public --accept-visibility-change-consequences`. Pre-conditions, ALL must hold:
+**Final action of L6 (added 2026-05-03 per Anson):** flip the repo from private to public via `gh repo edit applezebra/kayaclaw --visibility public --accept-visibility-change-consequences`. Pre-conditions, ALL must hold:
 1. L0–L5 all closed and committed.
 2. security-auditor agent run on the full repo, no P1 findings.
 3. README "What works" verified against every CONTRACT acceptance item.
@@ -127,7 +127,7 @@ Why a shell script rather than a Python script: the shell script can be run by a
 
 `README.md` — the public face of the project. Required sections:
 
-**Headline and positioning:** One sentence: "An LLM-agnostic agent built on NanoClaw's container security model, with no Anthropic lock-in." (Exact wording from CONTRACT §"Project identity"). The `nanoclawfork` working name appears in the README headline — this is the one additional permitted location beyond the two code files, per spirit of NFR-BD1 (the README is not source code).
+**Headline and positioning:** One sentence: "kayaclaw — a Singapore-made, LLM-agnostic agent built on NanoClaw's container security model, with no Anthropic lock-in." The `kayaclaw` brand name appears in the README headline — this is the one additional permitted location beyond the two code files, per spirit of NFR-BD1 (the README is not source code).
 
 **What works (0.1):** This section must contain the same statements as CONTRACT §"Works in 0.1", numbered 1–10, phrased in past tense or present tense as capabilities, not as future goals. Each item must correspond to a verifiable AC item. The plan-writer recommends quoting the 10 items from CONTRACT §"Works in 0.1" nearly verbatim — this is the most reliable way to maintain truthfulness (AC-8).
 
@@ -163,7 +163,7 @@ No multi-page setup doc. No prerequisites beyond Docker. The deploy surface is e
 - README "What works" contains exactly 10 items matching CONTRACT §"Works in 0.1".
 - README "Out of scope" matches CONTRACT §"Explicitly NOT in 0.x" word-for-word.
 - README "Status" section contains the actual LOC count from `scripts/loc.sh`.
-- `git grep "nanoclawfork" agent/` returns hits ONLY in `agent/__about__.py` (brand-leak check — the final gate for NFR-BD2).
+- `git grep "kayaclaw" agent/` returns hits ONLY in `agent/__about__.py` (brand-leak check — the final gate for NFR-BD2).
 
 ---
 
@@ -194,7 +194,7 @@ No multi-page setup doc. No prerequisites beyond Docker. The deploy surface is e
 
 **Brand-leak grep (part of Step 3, not a separate step):**
 
-Before closing L6, run: `git grep "nanoclawfork" agent/`
+Before closing L6, run: `git grep "kayaclaw" agent/`
 
 This must return hits ONLY in `agent/__about__.py`. If any other file in `agent/` contains the brand name, it is a violation of NFR-BD2 and must be fixed before the lane closes.
 
@@ -204,7 +204,7 @@ Also run: `git grep -i "anthropic" agent/` — this must return zero hits (or on
 
 **Acceptance check before proceeding to Step 4:**
 - `bash scripts/loc.sh` exits 0, total ≤ 800, all modules within caps.
-- `git grep "nanoclawfork" agent/` hits only `agent/__about__.py`.
+- `git grep "kayaclaw" agent/` hits only `agent/__about__.py`.
 - `git grep "import anthropic" agent/` returns no hits.
 - `README.md` "What works" has 10 items matching CONTRACT verbatim.
 - `NOTICES.md` lists all top-level dependencies with licenses.
@@ -241,7 +241,7 @@ Also run: `git grep -i "anthropic" agent/` — this must return zero hits (or on
 **What to run** (executed manually — NOT automated, because branch protection changes are sensitive and should be deliberate):
 
 ```bash
-gh api -X PUT /repos/applezebra/nanoclawfork/branches/main/protection \
+gh api -X PUT /repos/applezebra/kayaclaw/branches/main/protection \
   -f required_pull_request_reviews.required_approving_review_count=0 \
   -f required_pull_request_reviews.dismiss_stale_reviews=true \
   -F enforce_admins=false \
@@ -259,7 +259,7 @@ Why `enforce_admins=false`: Anson can override in emergencies (e.g., reverting a
 Why `required_status_checks=null`: No CI exists at v0.1. Add status checks once GitHub Actions is set up post-launch.
 
 **Acceptance check before proceeding to Step 6:**
-- `gh api /repos/applezebra/nanoclawfork/branches/main/protection` returns 200 (not 404).
+- `gh api /repos/applezebra/kayaclaw/branches/main/protection` returns 200 (not 404).
 - Test: try `git push --force origin main` — must be rejected by the remote.
 
 ---
@@ -273,13 +273,13 @@ Why `required_status_checks=null`: No CI exists at v0.1. Add status checks once 
 2. L6 Steps 1–5 complete.
 3. security-auditor agent has been run on the full repo and returned no P1 findings. (If P1s exist, fix them before this step. Do not flip to public with known P1s.)
 4. README "What works" verified against every CONTRACT acceptance item.
-5. `git grep "nanoclawfork" agent/` returns hits ONLY in `agent/__about__.py`.
+5. `git grep "kayaclaw" agent/` returns hits ONLY in `agent/__about__.py`.
 6. `git log --all --oneline | grep -iE "(secret|token|key|password|TODO: remove|XXX|FIXME)"` reviewed — no leaked secrets, no embarrassing TODOs.
 
 **What to run:**
 
 ```bash
-gh repo edit applezebra/nanoclawfork --visibility public --accept-visibility-change-consequences
+gh repo edit applezebra/kayaclaw --visibility public --accept-visibility-change-consequences
 ```
 
 Then verify GitHub recognizes:
@@ -301,15 +301,15 @@ L6 is closed when ALL of the following are true:
 | README "What works" matches CONTRACT §"Works in 0.1" items 1–10 | AC-8 |
 | README "Out of scope" matches CONTRACT §"Explicitly NOT in 0.x" verbatim | AC-8 |
 | README "Status" section quotes the actual measured LOC count | CONTRACT §"Acceptance criterion (added to 'Done =' list)" |
-| `git grep "nanoclawfork" agent/` returns hits ONLY in `agent/__about__.py` | NFR-BD2 |
+| `git grep "kayaclaw" agent/` returns hits ONLY in `agent/__about__.py` | NFR-BD2 |
 | `git grep "import anthropic" agent/` returns zero hits | AC-4 final verification |
 | `NOTICES.md` lists all top-level deps with licenses | NFR-LA2 |
 | `NOTICES.md` notes `qwibitai/nanoclaw` as design reference with no code lifted | NFR-LA2 |
 | `LICENSE` file at repo root, MIT text, copyright Anson Zeall 2026 | OSS minimum (Step 4) |
 | `SECURITY.md` at repo root with all 5 sections | OSS minimum (Step 4) |
-| `gh api /repos/applezebra/nanoclawfork/branches/main/protection` returns 200 | OSS minimum (Step 5) |
+| `gh api /repos/applezebra/kayaclaw/branches/main/protection` returns 200 | OSS minimum (Step 5) |
 | `git push --force origin main` rejected by remote (proves protection is live) | OSS minimum (Step 5) |
-| `gh repo view applezebra/nanoclawfork --json visibility` returns `PUBLIC` AFTER Steps 1–5 + security-auditor pass | Step 6 |
+| `gh repo view applezebra/kayaclaw --json visibility` returns `PUBLIC` AFTER Steps 1–5 + security-auditor pass | Step 6 |
 
 ---
 

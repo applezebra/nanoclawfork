@@ -1,5 +1,5 @@
 # Product Specification — v0.1
-**Working name:** nanoclawfork
+**Brand name:** kayaclaw (locked 2026-05-03 — Singapore-rooted, impartial; original working name `nanoclawfork` kept in historical refs and local dir)
 **Status:** Locked for 0.1 build
 **Authoritative scope document:** `docs/spec/CONTRACT-0.1.md`
 **Date:** 2026-05-01
@@ -8,7 +8,7 @@
 
 ## 1. Overview
 
-nanoclawfork is a lightweight, container-isolated, LLM-agnostic personal AI agent for a single developer. It takes NanoClaw's hardened container security model and pairs it with an OpenAI-compatible provider registry, so the agent can talk to DeepInfra, Ollama, Groq, Anthropic, or any other provider as equal-class peers — with no Anthropic SDK or protocol forced into the call path. The user interacts through Telegram text messages. The agent runs locally on the developer's Linux machine via `docker compose up`, persists conversation history across restarts, and is deployed as a public MIT-licensed repository from the first commit. The 0.1 release is a working, verifiable baseline: one connector, one provider, no bells.
+kayaclaw is a lightweight, container-isolated, LLM-agnostic personal AI agent for a single developer. It takes NanoClaw's hardened container security model and pairs it with an OpenAI-compatible provider registry, so the agent can talk to DeepInfra, Ollama, Groq, Anthropic, or any other provider as equal-class peers — with no Anthropic SDK or protocol forced into the call path. The user interacts through Telegram text messages. The agent runs locally on the developer's Linux machine via `docker compose up`, persists conversation history across restarts, and is deployed as a public MIT-licensed repository from the first commit. The 0.1 release is a working, verifiable baseline: one connector, one provider, no bells.
 
 ---
 
@@ -120,7 +120,7 @@ Performance targets for 0.1 are intentionally loose. The system is single-user, 
 ### 4.6 Brand Decoupling
 
 - NFR-BD1: The project's brand name must appear in exactly two files: `pyproject.toml` (the `[project].name` field) and `agent/__about__.py` (the `__brand__` and `__slug__` constants).
-- NFR-BD2: Internal import paths must use the generic package name `agent/`. No import path may contain the working name `nanoclawfork` or any future brand name.
+- NFR-BD2: Internal import paths must use the generic package name `agent/`. No import path may contain the brand name `kayaclaw` (or the historical working name `nanoclawfork`) or any future brand name.
 - NFR-BD3: Environment variables must use the `AGENT_` prefix. Container service names in `docker-compose.yaml` must use neutral names (`agent`, `router`). Config keys in `config.yaml` must use neutral vocabulary (`providers`, `agents`, `connectors`).
 - NFR-BD4: A rename (picking a final brand) must require changes to exactly those two files plus a cosmetic README headline update. No additional code changes.
 

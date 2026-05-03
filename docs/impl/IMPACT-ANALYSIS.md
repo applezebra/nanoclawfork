@@ -1,4 +1,4 @@
-# Impact Analysis — nanoclawfork v0.1
+# Impact Analysis — kayaclaw v0.1
 
 **Authoritative inputs:** `docs/spec/CONTRACT-0.1.md`, `docs/spec/SPEC-0.1.md`, `docs/spec/CONNECTOR-AUDIT-telegram.md`, `docs/REVIEW-PROTOCOL.md`, `docs/discovery/container/SECURITY.md`
 **Date:** 2026-05-01
@@ -19,16 +19,16 @@ v0.1 decomposes into **6 vertical lanes** plus **1 horizontal cross-cutting lane
 - **LOC budget:** ~40 effective LOC (no module-specific cap; counted against runtime/connector budgets where the scrubber is wired in). Hard rule: must not exceed 60 LOC for scaffolding alone.
 - **Public interface / contract:**
   - Package layout: `agent/__init__.py`, `agent/__about__.py` (exports `__brand__`, `__slug__`, `__version__`)
-  - `pyproject.toml` with `[project].name = "nanoclawfork"`, MIT license declaration
+  - `pyproject.toml` with `[project].name = "kayaclaw"`, MIT license declaration
   - `agent/logging.py` exports a `get_logger(name) -> logging.Logger` that installs a token-scrubbing filter (scrubs `TELEGRAM_BOT_TOKEN` value and any `*_API_KEY` env values from records before emit)
   - `.env.example`, `.gitignore` (includes `data/`, `config.yaml`, `.env`)
   - `NOTICES.md` stub
 - **Inputs:** Contract (brand-decoupling rules, env var conventions).
 - **Outputs:** Importable `agent` package; `get_logger` available to all downstream lanes.
 - **Tests it must pass:**
-  - Importing `agent` and `agent.__about__` works; `__brand__ == "nanoclawfork"`.
+  - Importing `agent` and `agent.__about__` works; `__brand__ == "kayaclaw"`.
   - Logger redacts a known token value placed in a log record.
-  - `grep -r nanoclawfork agent/` returns hits in only `__about__.py` (NFR-BD2).
+  - `grep -r kayaclaw agent/` returns hits in only `__about__.py` (NFR-BD2).
 - **Risk flags:** Scrubber over-redaction (false positives wiping useful logs); under-redaction (missing the token in error chains). Mitigation: scrubber reads token values from env at filter-init time and substitutes literal matches only.
 
 ### L1: Config schema + Provider registry
@@ -137,7 +137,7 @@ v0.1 decomposes into **6 vertical lanes** plus **1 horizontal cross-cutting lane
 - **Tests it must pass:**
   - `scripts/loc.sh` runs and reports core Python ≤ 800 with each module ≤ its cap.
   - README "What works" matches CONTRACT acceptance items 1:1.
-  - `git grep nanoclawfork` returns hits only in `pyproject.toml`, `agent/__about__.py`, README headline, and docs.
+  - `git grep kayaclaw` returns hits only in `pyproject.toml`, `agent/__about__.py`, README headline, and docs.
 - **Risk flags:** Branding leak — last-mile chance to violate NFR-BD. Run the rename grep at this gate.
 
 ---
@@ -214,7 +214,7 @@ These belong to no single lane. L0 owns the artifact; every lane inherits the re
 | Prompt-injection framing | L2 (runtime applies the envelope) | L4 produces raw text only, must NOT pre-concatenate or pre-format user input |
 | Structured logging fields | L0 sets the format; lanes emit | L1 (config-loaded), L2 (provider-call), L3 (memory R/W errors), L4 (msg-received, reply-sent, auth-drop) |
 | LOC accounting | L6 ships `scripts/loc.sh` | Every lane's commit message must include `LOC: +x -y (module … now n/cap)` per REVIEW-PROTOCOL |
-| Brand decoupling | L0 fixes the two-file rule; L6 verifies | Every lane forbids the literal string `nanoclawfork` in `agent/` source |
+| Brand decoupling | L0 fixes the two-file rule; L6 verifies | Every lane forbids the literal string `kayaclaw` in `agent/` source |
 | Anti-bloat 6-question gate | REVIEW-PROTOCOL.md | Every reviewer at every lane gate |
 | `/plan-eng-review` gate | After plan-writer per lane | Every lane (mandatory; not skippable for L1/L2/L4/L5 — security/state-machine surfaces) |
 | `/codex-review` gate | Before each commit | Every lane; never skippable for L4, L5 |
