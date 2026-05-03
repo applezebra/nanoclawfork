@@ -1,8 +1,8 @@
 # Implementation Plan — L3: Memory (SQLite, Per-Chat)
 
 **Lane:** L3
-**Version:** 0.1
-**Status:** Ready for `/plan-eng-review`
+**Version:** 0.2 (post-eng-review)
+**Status:** Approved by `/plan-eng-review` — ready for code-implementer
 **Depends on:** L0 (logger, package layout)
 **Blocks:** L4 (connector calls `memory.append` and `memory.history`)
 **Can run in parallel with:** L1, L2 (shares `Turn` shape with L2 but does not import from it)
@@ -75,6 +75,10 @@ Define `Memory` as a class (not a module-level function set) so that the DB path
 - No index in 0.1. The table is small (single user, last 20 turns queried). An index would be premature — `CREATE TABLE IF NOT EXISTS` is the full DDL.
 - Enable WAL mode: execute `PRAGMA journal_mode=WAL` after schema creation. WAL mode is cheap (one line) and makes the DB more robust to concurrent reads, even though 0.1 is single-writer. The IMPACT-ANALYSIS notes: "WAL mode optional but cheap" — the plan chooses to include it.
 
+**Connection lifecycle in `_init_schema` (eng-review A1):** Run BOTH the `CREATE TABLE IF NOT EXISTS` and the `PRAGMA journal_mode=WAL` inside the same `with sqlite3.connect(self._db_path) as conn:` block. WAL mode is file-level persistent (set once, sticks), so functionally either approach works, but doing both in one connection is the obvious read and avoids the question "did the PRAGMA actually take effect on a fresh connection?" Tests verify by querying `PRAGMA journal_mode` after construction.
+
+**`chat_id` type and group support (eng-review A2):** `chat_id INTEGER` accepts negative values (Telegram supergroup chat IDs are large negative integers like `-1001234567890`). SQLite INTEGER is signed 64-bit so it stores them without loss. 0.1 only wires DMs (positive IDs) at the L4 connector level, but the schema and the `Memory` class work for groups without modification — a future lane that adds group support touches L4 only, not L3.
+
 `Memory.append(self, chat_id: int, role: str, content: str) -> None`:
 - Insert one row: `INSERT INTO turns(chat_id, ts, role, content) VALUES (?, ?, ?, ?)` with `ts = int(time.time())`.
 - Use a context manager (`with sqlite3.connect(self._db_path) as conn:`) for automatic commit/rollback.
@@ -91,6 +95,8 @@ tests/test_l3_memory.py  (Step 1 portion)
 - Assert the file exists at the expected path after construction.
 - Call `_init_schema` twice (by constructing two `Memory` instances pointing at the same file) — assert no error (tests idempotency of `CREATE TABLE IF NOT EXISTS`).
 - Assert the WAL files (`.sqlite-wal`, `.sqlite-shm`) are created or that WAL mode is confirmed via `PRAGMA journal_mode`.
+- **Log content scrubbing (eng-review T1):** Use pytest's `caplog` to capture INFO+DEBUG records from the `agent.memory` logger. Call `memory.append(chat_id=42424242, role="user", content="this-is-private-content")`. Assert that `"42424242"` does NOT appear in any captured log message AND `"this-is-private-content"` does NOT appear AND `"role=user"` (or equivalent) DOES appear AND `"len=22"` (or the actual content length) DOES appear. This proves the lane acceptance line "no `chat_id` data appears in INFO log output (only len/role)" is actually enforced, not just declared.
+- **SQL injection safety (eng-review T2):** Call `memory.append(chat_id=1, role="'; DROP TABLE turns; --", content="payload")`. Then call `memory.history(chat_id=1)`. Assert (a) the row was inserted (history returns one turn), (b) the table still exists (a second `memory.append` succeeds), (c) the role field round-trips the literal string `"'; DROP TABLE turns; --"` unchanged. This proves parameterized `?` placeholders prevent injection AND prevents future regression where someone slips into f-string SQL.
 
 **Acceptance check before proceeding to Step 2:**
 - Step 1 tests all pass.
@@ -132,6 +138,7 @@ Why a module-level function rather than a class method or a default argument: th
 - Test idempotency of container restart: construct `Memory(path)`, append 3 turns, discard the object, construct a new `Memory(path)`, call `history()` — assert the 3 turns are still there (proves `CREATE TABLE IF NOT EXISTS` did not wipe data on re-init).
 - Call `default_db_path()` with `AGENT_DATA_DIR` unset — assert returns `Path("/data/agent.sqlite")`.
 - Call `default_db_path()` with `AGENT_DATA_DIR="/custom"` — assert returns `Path("/custom/agent.sqlite")`.
+- **Return type (eng-review T3):** Assert `isinstance(default_db_path(), Path)`. Cheap defense against a future slip where someone uses string concatenation and breaks downstream `Path` operations.
 
 **Acceptance check before closing L3:**
 - All tests pass.
@@ -192,3 +199,16 @@ In sequence, before closing this lane:
 7. **`code-reviewer` Post-Test Gate** — after all tests pass. Check: restart idempotency test covers the AC-5 scenario.
 
 8. **`git-steward`** — commit message must include `Codex-reviewed (VERDICT: ...)` and `LOC: +n -0 (module memory now n/150)`.
+
+---
+
+## 8. Revision Log
+
+**v0.2 (post-/plan-eng-review 2026-05-03):**
+- A1 (P3): Made explicit that `_init_schema` runs CREATE TABLE + PRAGMA in the same connection.
+- A2 (P3): Documented that `chat_id INTEGER` accepts negative values (Telegram supergroup IDs work despite 0.1 wiring DMs only at L4).
+- T1 (P2): Added caplog test asserting `chat_id` and `content` do NOT appear in INFO/DEBUG log output (only role + len). The lane acceptance demanded this; previously no test enforced it.
+- T2 (P3): Added SQL injection safety test using `'; DROP TABLE turns; --` as a role payload. Proves parameterized `?` placeholders work and prevents regression to f-string SQL.
+- T3 (P3): Added `isinstance(default_db_path(), Path)` assertion.
+
+All five are plan-doc edits only — no scope, LOC budget, or schedule change.
