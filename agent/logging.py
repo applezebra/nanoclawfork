@@ -29,30 +29,105 @@ def _collect_secrets() -> list[str]:
 _SECRETS: list[str] = _collect_secrets()
 
 
+def _scrub_text(text: str) -> str:
+    """Replace every known secret in `text` with [REDACTED]."""
+    if not _SECRETS:
+        return text
+    for secret in _SECRETS:
+        text = text.replace(secret, "[REDACTED]")
+    return text
+
+
+# Defense in depth — three layers, because Python logging has multiple paths
+# from "log call" to "string emitted by a handler":
+#
+#   Layer 1: LogRecord factory scrubs record.msg + record.args at creation.
+#            Any formatter that reads record.getMessage() (the canonical path)
+#            sees scrubbed content, including formatter subclasses that override
+#            format() without calling super (codex-review L2 P1).
+#
+#   Layer 2: logging.Formatter.format / formatException patch scrubs the final
+#            string output. Catches default Formatter and any subclass that
+#            calls super().format(). Also handles exc_text scrubbing.
+#
+#   Layer 3: _ScrubFilter on root logger backstops anything that reads
+#            record.exc_text or record.stack_info directly without going
+#            through a Formatter.
+#
+# Guard against double-install (importlib.reload in tests would otherwise cause
+# infinite recursion via _orig_format → _scrubbing_format → _orig_format → ...).
+
+# NOTE on importlib.reload safety: Python closures over module-level names
+# resolve by name at call time. If we capture `_orig = stdlib_default` at module
+# scope and then reload the module, the module-level name `_orig` rebinds to the
+# CURRENTLY installed (already-patched) function, and our patched function
+# recurses into itself on next call. Fix: capture the original via a function
+# default argument, which is bound at function-definition time and is immune to
+# subsequent module reloads. This is why every patch below uses `_orig=...`.
+
+# Layer 1: LogRecord factory.
+_existing_factory = logging.getLogRecordFactory()
+if not getattr(_existing_factory, "_kayaclaw_scrubbing", False):
+    def _scrubbing_record_factory(*args, _orig=_existing_factory, **kwargs):  # type: ignore[no-untyped-def]
+        record = _orig(*args, **kwargs)
+        if not _SECRETS:
+            return record
+        # Scrub the format string and each positional/keyword arg. record.getMessage()
+        # then returns scrubbed text whether or not the formatter calls super.
+        if isinstance(record.msg, str):
+            record.msg = _scrub_text(record.msg)
+        if record.args:
+            if isinstance(record.args, tuple):
+                record.args = tuple(
+                    _scrub_text(a) if isinstance(a, str) else a for a in record.args
+                )
+            elif isinstance(record.args, dict):
+                record.args = {
+                    k: (_scrub_text(v) if isinstance(v, str) else v)
+                    for k, v in record.args.items()
+                }
+        return record
+
+    _scrubbing_record_factory._kayaclaw_scrubbing = True  # type: ignore[attr-defined]
+    logging.setLogRecordFactory(_scrubbing_record_factory)
+
+# Layer 2: Formatter method patch.
+if not getattr(logging.Formatter.format, "_kayaclaw_scrubbing", False):
+    def _scrubbing_format(  # type: ignore[no-untyped-def]
+        self, record, _orig=logging.Formatter.format
+    ):
+        return _scrub_text(_orig(self, record))
+
+    def _scrubbing_format_exception(  # type: ignore[no-untyped-def]
+        self, exc_info, _orig=logging.Formatter.formatException
+    ):
+        return _scrub_text(_orig(self, exc_info))
+
+    _scrubbing_format._kayaclaw_scrubbing = True  # type: ignore[attr-defined]
+    _scrubbing_format_exception._kayaclaw_scrubbing = True  # type: ignore[attr-defined]
+    logging.Formatter.format = _scrubbing_format  # type: ignore[method-assign]
+    logging.Formatter.formatException = _scrubbing_format_exception  # type: ignore[method-assign]
+
+
 class _ScrubFilter(logging.Filter):
-    """Replace known secret values with [REDACTED] across all record fields."""
+    """Defense-in-depth: scrub record fields in place so anyone reading
+    record.msg / record.exc_text / record.stack_info directly (not via a
+    Formatter) still sees scrubbed content. The Formatter patch above is the
+    primary defense; this filter is the backstop.
+    """
 
     def filter(self, record: logging.LogRecord) -> bool:
         if not _SECRETS:
             return True
-        # Scrub the fully-substituted message so secrets in %-format args are caught.
-        record.msg = self._scrub(record.getMessage())
+        record.msg = _scrub_text(record.getMessage())
         record.args = None
-        # exc_text is formatted lazily by the handler; pre-format and scrub it
-        # here so the cached value is already clean when the handler reads it.
         if record.exc_info and not record.exc_text:
             record.exc_text = logging.Formatter().formatException(record.exc_info)
         if record.exc_text:
-            record.exc_text = self._scrub(record.exc_text)
+            record.exc_text = _scrub_text(record.exc_text)
         if record.stack_info:
-            record.stack_info = self._scrub(record.stack_info)
+            record.stack_info = _scrub_text(record.stack_info)
         return True
-
-    @staticmethod
-    def _scrub(text: str) -> str:
-        for secret in _SECRETS:
-            text = text.replace(secret, "[REDACTED]")
-        return text
 
 
 def _install_filter() -> None:

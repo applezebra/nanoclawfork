@@ -3,6 +3,17 @@ from __future__ import annotations
 
 from typing import Literal, TypedDict
 
+from pydantic_ai import Agent
+from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
+
+from agent.config import ConfigError
+from agent.logging import get_logger
+from agent.registry import ResolvedProvider
+
+_log = get_logger("agent.runtime")
+
 
 class Turn(TypedDict):
     """A single conversation turn, compatible with the L3 memory layer's dict shape."""
@@ -39,3 +50,62 @@ def _frame_user_text(text: str, chat_id: int) -> str:
         )
     escaped = text.replace("</user_message>", r"<\/user_message>")
     return f'<user_message chat_id="{chat_id}">\n{escaped}\n</user_message>'
+
+
+async def reply(
+    provider: ResolvedProvider,
+    system_prompt: str,
+    history: list[Turn],
+    user_text: str,
+    chat_id: int,
+) -> str:
+    """Call the LLM and return the assistant reply as a plain string.
+
+    Steps (in order per PLAN-L2 Step 2):
+      1. Frame the user text in the prompt-injection envelope.
+      2. Build PydanticAI model from provider (openai_compatible only; anything
+         else raises ConfigError — anthropic is already rejected at L1 resolve).
+      3. Construct a fresh Agent per call (no module-level cache in 0.1).
+      4. Translate history list[Turn] into PydanticAI message_history.
+      5. Await agent.run(); extract .output string.
+      6. Log INFO routing metadata (no api_key, no user/reply text).
+      7. On exception: log ERROR via scrubbing logger, then re-raise.
+    """
+    framed = _frame_user_text(user_text, chat_id)
+
+    if provider.kind == "openai_compatible":
+        model = OpenAIChatModel(
+            model_name=provider.model_id,
+            provider=OpenAIProvider(
+                base_url=provider.base_url,
+                api_key=provider.api_key,
+            ),
+        )
+    else:
+        raise ConfigError(f"Unknown provider kind: {provider.kind!r}")
+
+    agent: Agent[None, str] = Agent(model, system_prompt=system_prompt)
+
+    message_history = []
+    for turn in history:
+        if turn["role"] == "user":
+            message_history.append(ModelRequest(parts=[UserPromptPart(content=turn["content"])]))
+        else:
+            message_history.append(ModelResponse(parts=[TextPart(content=turn["content"])]))
+
+    try:
+        result = await agent.run(framed, message_history=message_history)
+        _log.info(
+            "provider-call: provider=%s model=%s",
+            provider.provider_name,
+            provider.model_id,
+        )
+        return result.output
+    except Exception:
+        _log.error(
+            "provider-call failed: provider=%s model=%s",
+            provider.provider_name,
+            provider.model_id,
+            exc_info=True,
+        )
+        raise

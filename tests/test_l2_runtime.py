@@ -1,9 +1,14 @@
-"""Tests for L2 Step 1: Turn TypedDict shape and _frame_user_text framing logic."""
+"""Tests for L2: Turn TypedDict shape, _frame_user_text framing, and reply() function."""
 from __future__ import annotations
+
+import logging
+import re
 
 import pytest
 
-from agent.runtime import Turn, _frame_user_text
+from agent.config import ConfigError
+from agent.registry import ResolvedProvider
+from agent.runtime import Turn, _frame_user_text, reply
 
 
 class TestTurnShape:
@@ -61,3 +66,252 @@ class TestFrameUserText:
     def test_chat_id_must_be_int_rejects_none(self) -> None:
         with pytest.raises(TypeError, match="chat_id must be int"):
             _frame_user_text("hello", chat_id=None)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Helpers for Step 2 tests
+# ---------------------------------------------------------------------------
+
+def _make_provider(kind: str = "openai_compatible") -> ResolvedProvider:
+    """Build a minimal ResolvedProvider for testing."""
+    return ResolvedProvider(
+        provider_name="test-provider",
+        kind=kind,
+        base_url="https://api.example.com/v1",
+        api_key="test-key",
+        model_id="test-model",
+    )
+
+
+def _make_fn_model(captured: list, reply_text: str = "ok"):
+    """Return a FunctionModel that captures messages and returns reply_text."""
+    from pydantic_ai.models.function import FunctionModel, AgentInfo
+    from pydantic_ai.messages import ModelMessage, ModelResponse, TextPart
+
+    def fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        captured.append(list(messages))
+        return ModelResponse(parts=[TextPart(content=reply_text)])
+
+    return FunctionModel(fn)
+
+
+def _patch_agent(monkeypatch: pytest.MonkeyPatch, fn_model) -> None:
+    """Monkeypatch agent.runtime.Agent so reply() uses fn_model instead of the real model."""
+    import agent.runtime as rt
+    original = rt.Agent
+
+    class PatchedAgent(original):  # type: ignore[misc, valid-type]
+        def __init__(self, model, **kwargs):  # type: ignore[override]
+            super().__init__(fn_model, **kwargs)
+
+    monkeypatch.setattr(rt, "Agent", PatchedAgent)
+
+
+# ---------------------------------------------------------------------------
+# Step 2: reply() function tests
+# ---------------------------------------------------------------------------
+
+class TestReply:
+    """Tests for the async reply() function."""
+
+    @pytest.mark.anyio
+    async def test_happy_path_returns_model_reply(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """FunctionModel returning 'ok' → reply() returns 'ok'."""
+        captured: list = []
+        _patch_agent(monkeypatch, _make_fn_model(captured, "ok"))
+        result = await reply(_make_provider(), "sys", [], "hello", chat_id=1)
+        assert result == "ok"
+
+    @pytest.mark.anyio
+    async def test_framing_reaches_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The framed envelope is what the model sees as the user prompt."""
+        from pydantic_ai.messages import UserPromptPart
+
+        captured: list = []
+        _patch_agent(monkeypatch, _make_fn_model(captured))
+        await reply(_make_provider(), "sys", [], "hello", chat_id=1)
+
+        user_texts = []
+        for msg in captured[0]:
+            for part in msg.parts:
+                if isinstance(part, UserPromptPart):
+                    c = part.content
+                    user_texts.append(c if isinstance(c, str) else str(c))
+
+        expected = '<user_message chat_id="1">\nhello\n</user_message>'
+        assert any(expected in t for t in user_texts), (
+            f"Expected framed envelope in user parts; got: {user_texts}"
+        )
+
+    @pytest.mark.anyio
+    async def test_system_prompt_reaches_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """T1: system_prompt is present as a SystemPromptPart in the captured messages."""
+        from pydantic_ai.messages import SystemPromptPart
+
+        captured: list = []
+        _patch_agent(monkeypatch, _make_fn_model(captured))
+        await reply(_make_provider(), "my system prompt", [], "hello", chat_id=1)
+
+        system_contents = []
+        for msg in captured[0]:
+            for part in msg.parts:
+                if isinstance(part, SystemPromptPart):
+                    system_contents.append(part.content)
+
+        assert any("my system prompt" in c for c in system_contents), (
+            f"system_prompt not found; system parts: {system_contents}"
+        )
+
+    @pytest.mark.anyio
+    async def test_history_passthrough(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """T2: prior history turns appear in order before the current framed user text."""
+        from pydantic_ai.messages import UserPromptPart, TextPart
+
+        captured: list = []
+        _patch_agent(monkeypatch, _make_fn_model(captured))
+        history: list[Turn] = [
+            {"role": "user", "content": "prior"},
+            {"role": "assistant", "content": "prior reply"},
+        ]
+        await reply(_make_provider(), "sys", history, "current", chat_id=2)
+
+        all_text: list[str] = []
+        for msg in captured[0]:
+            for part in msg.parts:
+                if isinstance(part, UserPromptPart):
+                    c = part.content
+                    all_text.append(c if isinstance(c, str) else str(c))
+                elif isinstance(part, TextPart):
+                    all_text.append(part.content)
+
+        assert "prior" in all_text, f"'prior' not found in {all_text}"
+        assert "prior reply" in all_text, f"'prior reply' not found in {all_text}"
+        prior_idx = next(i for i, t in enumerate(all_text) if t == "prior")
+        reply_idx = next(i for i, t in enumerate(all_text) if t == "prior reply")
+        current_idx = next(i for i, t in enumerate(all_text) if "current" in t)
+        assert prior_idx < reply_idx < current_idx, (
+            f"Order wrong: prior@{prior_idx}, prior_reply@{reply_idx}, current@{current_idx}"
+        )
+
+    @pytest.mark.anyio
+    async def test_empty_history_first_turn(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Empty history: reply returns OK; only one user-prompt part (the framed message)."""
+        from pydantic_ai.messages import UserPromptPart
+
+        captured: list = []
+        _patch_agent(monkeypatch, _make_fn_model(captured, "first reply"))
+        result = await reply(_make_provider(), "sys", [], "hi", chat_id=5)
+        assert result == "first reply"
+
+        user_parts = []
+        for msg in captured[0]:
+            for part in msg.parts:
+                if isinstance(part, UserPromptPart):
+                    c = part.content
+                    user_parts.append(c if isinstance(c, str) else str(c))
+
+        assert len(user_parts) == 1, f"Expected 1 user part, got {len(user_parts)}: {user_parts}"
+        assert '<user_message chat_id="5">' in user_parts[0]
+
+    @pytest.mark.anyio
+    async def test_unknown_kind_raises_config_error(self) -> None:
+        """provider.kind not in {'openai_compatible'} → ConfigError (defensive guard)."""
+        bad_provider = ResolvedProvider(
+            provider_name="ollama",
+            kind="ollama",
+            base_url="http://localhost:11434",
+            api_key=None,
+            model_id="llama3",
+        )
+        with pytest.raises(ConfigError, match="Unknown provider kind"):
+            await reply(bad_provider, "sys", [], "hello", chat_id=1)
+
+    @pytest.mark.anyio
+    async def test_exception_propagates_and_key_not_logged(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Exception propagates; api_key value is NOT visible in any log output path.
+
+        Defense-in-depth verification (codex-review L2 P2): we assert against
+        BOTH caplog (the record-mutation path) AND a real StreamHandler with a
+        Formatter (the actual output path). A regression in the Formatter patch
+        would still pass the caplog check, so the StreamHandler check is the one
+        that actually proves the protection holds.
+        """
+        import io
+        from pydantic_ai.models.function import FunctionModel, AgentInfo
+        from pydantic_ai.messages import ModelMessage, ModelResponse
+        import agent.runtime as rt
+        import agent.logging as alog
+
+        secret = "test-key-value-12345"
+        monkeypatch.setenv("DEEPINFRA_API_KEY", secret)
+
+        # Ensure the scrubber knows this secret (it was collected at module import;
+        # add it manually so the test is not sensitive to import order).
+        if secret not in alog._SECRETS:
+            alog._SECRETS.insert(0, secret)
+
+        def raising_fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+            raise RuntimeError(f"simulated error containing DEEPINFRA_API_KEY={secret}")
+
+        fn_model = FunctionModel(raising_fn)
+        original = rt.Agent
+
+        class PatchedAgent(original):  # type: ignore[misc, valid-type]
+            def __init__(self, model, **kwargs):  # type: ignore[override]
+                super().__init__(fn_model, **kwargs)
+
+        monkeypatch.setattr(rt, "Agent", PatchedAgent)
+
+        provider = ResolvedProvider(
+            provider_name="deepinfra",
+            kind="openai_compatible",
+            base_url="https://api.deepinfra.com/v1/openai",
+            api_key=secret,
+            model_id="meta-llama/Llama-3.3-70B-Instruct",
+        )
+
+        # Attach a real StreamHandler with a Formatter so we observe the actual
+        # emitted output, not just the in-memory record.
+        buf = io.StringIO()
+        handler = logging.StreamHandler(buf)
+        handler.setFormatter(logging.Formatter("%(levelname)s %(message)s\n%(exc_text)s"))
+        handler.setLevel(logging.ERROR)
+        runtime_logger = logging.getLogger("agent.runtime")
+        runtime_logger.addHandler(handler)
+        try:
+            with caplog.at_level(logging.ERROR, logger="agent.runtime"):
+                with pytest.raises(RuntimeError):
+                    await reply(provider, "sys", [], "hello", chat_id=1)
+        finally:
+            runtime_logger.removeHandler(handler)
+
+        # 1. Real handler output (the path that matters for production).
+        emitted = buf.getvalue()
+        assert secret not in emitted, (
+            f"Secret leaked through real StreamHandler output: {emitted!r}"
+        )
+        assert "[REDACTED]" in emitted, (
+            f"Expected [REDACTED] in emitted output: {emitted!r}"
+        )
+
+        # 2. caplog records (defense-in-depth — record-level scrub backstop).
+        for record in caplog.records:
+            assert secret not in record.getMessage(), (
+                f"Secret found in record.getMessage(): {record.getMessage()!r}"
+            )
+            if record.exc_text:
+                assert secret not in record.exc_text, (
+                    f"Secret found in record.exc_text: {record.exc_text!r}"
+                )
+
+    def test_no_anthropic_import_in_runtime(self) -> None:
+        """A2: neither 'import anthropic' nor 'from anthropic' appears in agent/runtime.py."""
+        import pathlib
+        source = pathlib.Path(__file__).parent.parent / "agent" / "runtime.py"
+        text = source.read_text()
+        match = re.search(r"^\s*(import anthropic|from anthropic)", text, re.M)
+        assert match is None, (
+            f"Found Anthropic import in agent/runtime.py: {match.group()!r}"
+        )
