@@ -6,7 +6,7 @@ import logging
 import pytest
 
 from agent.config import ConfigError
-from agent.connectors.telegram import _load_env
+from agent.connectors.telegram import _is_allowed, _load_env
 
 
 class TestLoadEnvHappyPath:
@@ -152,3 +152,30 @@ class TestLoadEnvAllowlistEdgeCases:
         monkeypatch.setenv("ALLOWED_TELEGRAM_CHAT_IDS", raw)
         _, allowlist = _load_env()
         assert allowlist == expected
+
+
+class TestIsAllowed:
+    """L4 Step 2: pure allowlist filter — no logging, no exceptions."""
+
+    def test_allowed_id_returns_true(self) -> None:
+        assert _is_allowed(12345, {12345, 67890}) is True
+
+    def test_unknown_id_returns_false(self) -> None:
+        assert _is_allowed(99999, {12345, 67890}) is False
+
+    def test_empty_allowlist_blocks_everyone(self) -> None:
+        """Defensive: even though _load_env refuses to construct an empty
+        allowlist, _is_allowed must still deny when handed one."""
+        assert _is_allowed(12345, set()) is False
+
+    def test_negative_supergroup_id_allowed(self) -> None:
+        """Telegram supergroup IDs are negative; round-trip cleanly."""
+        assert _is_allowed(-1001234567890, {-1001234567890}) is True
+
+    def test_no_logging_on_call(self, caplog: pytest.LogCaptureFixture) -> None:
+        """_is_allowed is pure: caller is responsible for auth-drop logging."""
+        import logging
+        with caplog.at_level(logging.DEBUG, logger="agent.connectors.telegram"):
+            _is_allowed(12345, {12345})
+            _is_allowed(99999, {12345})
+        assert caplog.records == []

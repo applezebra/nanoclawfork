@@ -1,4 +1,4 @@
-"""Telegram polling connector — Step 1: env-var validation."""
+"""Telegram polling connector — Steps 1-2: env-var validation + allowlist filter."""
 from __future__ import annotations
 
 import os
@@ -46,3 +46,13 @@ def _load_env() -> tuple[str, set[int]]:
 
     _log.info("Allowlist loaded: %d chat ID(s)", len(allowlist))
     return token, allowlist
+
+
+def _is_allowed(chat_id: int, allowlist: set[int]) -> bool:
+    """Return True iff chat_id is in the allowlist.
+
+    Pure: no logging, no exceptions. The caller logs auth-drop with the
+    chat_id. Kept private and side-effect-free so the allowlist check is
+    testable in isolation without mocking the Telegram library.
+    """
+    return chat_id in allowlist
