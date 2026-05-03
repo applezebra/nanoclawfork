@@ -19,6 +19,15 @@
 
 L6 makes the repository public-presentable and its claims independently verifiable. It produces the README (with "What works" that matches CONTRACT acceptance items exactly), completes `NOTICES.md` with final dependency attributions, writes `scripts/loc.sh` that counts effective Python LOC per module, and runs the brand-leak grep as a final gate. The LOC count in the README must reflect the actual measured count from `scripts/loc.sh` after all lanes are merged.
 
+**Final action of L6 (added 2026-05-03 per Anson):** flip the repo from private to public via `gh repo edit applezebra/nanoclawfork --visibility public --accept-visibility-change-consequences`. Pre-conditions, ALL must hold:
+1. L0–L5 all closed and committed.
+2. security-auditor agent run on the full repo, no P1 findings.
+3. README "What works" verified against every CONTRACT acceptance item.
+4. Brand-leak grep clean.
+5. `git log --all --oneline | grep -iE "(secret|token|key|password|TODO: remove)"` returns nothing concerning.
+
+This flip is the LAST action of L6, not the first action of L0. Original CONTRACT said "public from first commit"; overridden — see CONTRACT-0.1.md "Public posture" line.
+
 **LOC budget:** Documentation files are exempt from the LOC rule per global CLAUDE.md ("Documentation Exemption: LOC limits do NOT apply to `.md`/`.txt` files in `/docs/`"). The `scripts/loc.sh` script is capped at 30 effective LOC.
 
 ---

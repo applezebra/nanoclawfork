@@ -13,7 +13,7 @@ contract revision, not into the build.
 - **Working name:** `nanoclawfork` (final brand deferred — see `docs/discovery/BRANDING.md`)
 - **Version target:** `0.1.0`
 - **License:** MIT
-- **Public posture:** public repo from first commit
+- **Public posture:** **private repo during build; flip to public ONLY when 0.1 is feature-complete and security-audited.** (Updated 2026-05-03 by Anson — original contract said "public from first commit"; corrected to avoid shipping mid-build code with unaudited Telegram input surface.)
 - **Positioning:** "An LLM-agnostic NanoClaw fork — same security posture, no Anthropic lock-in."
 
 ## Thesis (must hold for any 0.1 build)
@@ -33,7 +33,7 @@ as a configured provider — it just isn't required, and isn't the default.
 6. **Local Docker** on Anson's Linux machine. `docker compose up` is the deploy command.
 7. **Provider registry** loaded from `config.yaml`. DeepInfra configured. Schema supports adding more providers without code changes.
 8. **Brand-decoupled code**: project name lives in exactly two files (`pyproject.toml`, `agent/__about__.py`).
-9. **Public repo**, MIT license, `NOTICES.md` attributing any lifted MIT-licensed code.
+9. **Public repo at 0.1 release** (NOT during build — see Public Posture above), MIT license, `NOTICES.md` attributing any lifted MIT-licensed code. Flip-to-public is the final action of the L6 release polish lane, gated on security-auditor pass.
 10. **README** documents what works, what's in progress, what's explicitly out of 0.x.
 
 ## Stretch (only if 0.1 lands fast — do not block 0.1 release on these)
