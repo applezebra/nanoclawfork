@@ -25,9 +25,9 @@ as a configured provider — it just isn't required, and isn't the default.
 
 ## Works in 0.1 (the contract — every item must be true)
 
-1. **Telegram connector**, text-only, single chat-id allowlist (`ALLOWED_TELEGRAM_USER_IDS` env var).
+1. **Telegram connector**, text-only, single chat-id allowlist (`ALLOWED_TELEGRAM_CHAT_IDS` env var). [Renamed from `ALLOWED_TELEGRAM_USER_IDS` per L4 plan-eng-review A1: `chat_id == user_id` in DMs but diverges in groups; the var is named by what we actually check.]
 2. **DeepInfra provider** end-to-end via OpenAI-compatible API. Default model: Llama 3.3 70B Instruct.
-3. **PydanticAI runtime**, with no provider-vendor SDK (Anthropic, OpenAI, etc.) as a hard dependency. The default `config.example.yaml` ships pointing at a non-Anthropic provider (DeepInfra) so that the out-of-box install does not require an Anthropic account or API key.
+3. **PydanticAI runtime**, with no provider-vendor SDK (Anthropic, OpenAI, etc.) as a hard *top-level* dependency. The deployed install pulls in the OpenAI SDK transitively via `pydantic-ai-slim[openai]` (the slim variant; the full `pydantic-ai` meta-package was rejected during L5 Step 2 because it pulls in `anthropic` SDK by default, violating AC-4). The Anthropic SDK is verifiably absent from the runtime container. The default `config.example.yaml` ships pointing at a non-Anthropic provider (DeepInfra) so that the out-of-box install does not require an Anthropic account or API key.
 4. **SQLite memory** on a named Docker volume, per-chat history, survives container restart.
 5. **Hardened container**: 16 of 20 controls in `SECURITY.md` verified (the 4 deferred are explicitly tracked).
 6. **Local Docker** on Anson's Linux machine. `docker compose up` is the deploy command.

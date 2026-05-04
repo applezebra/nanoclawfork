@@ -1,8 +1,8 @@
 # Implementation Plan — L6: Release Polish
 
 **Lane:** L6
-**Version:** 0.1
-**Status:** Ready for `/plan-eng-review`
+**Version:** 0.2 (post-eng-review 2026-05-04)
+**Status:** Approved by `/plan-eng-review` — ready for code-implementer
 **Depends on:** ALL prior lanes complete (L0 through L5). L6 produces the final LOC count and README claims — these must reflect the real final state.
 **Blocks:** Nothing (this is the final lane)
 **Can run in parallel with:** Nothing (L6 starts only when all prior lanes are closed)
@@ -133,7 +133,7 @@ Why a shell script rather than a Python script: the shell script can be run by a
 
 Example entry (exact wording TBD by code-implementer matching the actual final state):
 ```
-1. Telegram connector, text-only, single chat-ID allowlist (ALLOWED_TELEGRAM_USER_IDS).
+1. Telegram connector, text-only, single chat-ID allowlist (ALLOWED_TELEGRAM_CHAT_IDS). [eng-review L6 P1-1 — was USER_IDS in v0.1]
 2. DeepInfra provider end-to-end via OpenAI-compatible API. Default model: Llama 3.3 70B Instruct.
 ...
 ```
@@ -155,7 +155,10 @@ These claims may appear in the README only if `scripts/loc.sh` confirms the LOC 
 
 No multi-page setup doc. No prerequisites beyond Docker. The deploy surface is exactly three files (NFR-D2).
 
-**Verifying the security posture:** A brief section pointing readers to `docs/discovery/container/SECURITY.md` for the control checklist and to `docker inspect` for the verifiable claims. This is the "independently verifiable" posture from US-5.
+**Verifying the security posture:** A brief section pointing readers to:
+- `docs/discovery/container/SECURITY.md` — the container hardening control checklist (16 verified controls, 4 deferred), each with a runnable verification command.
+- `SECURITY.md` (repo root) — the **vulnerability disclosure policy** (eng-review L6 P2-4): how to report a security issue privately via GitHub Security Advisories or `security@kayaclaw.ai`. Researchers land here from GitHub's "Security" tab.
+- `docker inspect` for verifying the live container's enforcement of `ReadonlyRootfs`, `CapDrop`, `SecurityOpt`. This is the "independently verifiable" posture from US-5.
 
 **Tests to add:** None (Markdown file). The acceptance check is a manual review by the code-reviewer against the AC-8 criterion.
 
@@ -180,12 +183,12 @@ No multi-page setup doc. No prerequisites beyond Docker. The deploy surface is e
 
 1. The project's own MIT license header block (project name, year, standard MIT text).
 
-2. A section "Third-party Python dependencies" listing every package in `pyproject.toml`'s `[project.dependencies]` with its license. For each:
-   - `python-telegram-bot`: MIT license, link to the project's GitHub.
-   - `pydantic-ai`: MIT license.
-   - `pydantic`: MIT license.
-   - `PyYAML`: MIT license.
-   - (Note: per DECISIONS.md D2, L3 uses `sqlite3` from stdlib — `aiosqlite` is NOT a top-level dependency. Code-implementer must run `pip freeze` and list any transitive deps that appear there with their licenses, rather than assuming a fixed list.)
+2. A section "Third-party Python dependencies" listing every package in `pyproject.toml`'s `[project.dependencies]` with its license AND pinned version (eng-review L6 P2-3 — versions matter because licenses can change across major versions). For each:
+   - `python-telegram-bot==22.7`: MIT license, link to the project's GitHub.
+   - `pydantic-ai-slim[openai]==1.89.0`: MIT license. [eng-review L6 P1-2 — NOT `pydantic-ai` meta; the meta pulls in `anthropic` transitively which violates AC-4. Slim variant with the `openai` extra installs only what we use.]
+   - `pydantic==2.13.3`: MIT license.
+   - `PyYAML==6.0.3`: MIT license.
+   - (Note: per DECISIONS.md D2, L3 uses `sqlite3` from stdlib — `aiosqlite` is NOT a top-level dependency. Code-implementer must run `pip freeze` and list any transitive deps that appear there with their licenses, rather than assuming a fixed list. Notably, the `openai` SDK appears transitively via `pydantic-ai-slim[openai]` — list it with version + MIT license; the `anthropic` SDK does NOT appear and is verified absent in the L5 acceptance check.)
 
 3. A section "Design references (no code lifted)":
    - `qwibitai/nanoclaw` (MIT) — consulted as a design reference for container hardening patterns and connector security audit. No code was lifted. The Telegram connector was re-derived from scratch in Python after a security audit concluded the TypeScript connector could not be ported (language mismatch). Attribution is provided per the spirit of the MIT license and the CONNECTOR-AUDIT verdict.
@@ -220,17 +223,33 @@ Also run: `git grep -i "anthropic" agent/` — this must return zero hits (or on
 
 `LICENSE` — verbatim MIT license text (https://opensource.org/license/mit), `Copyright (c) 2026 Anson Zeall`. No deviations from the standard text. GitHub auto-detects this and shows the "MIT License" badge on the repo header.
 
-`SECURITY.md` — short and honest. Sections:
+`SECURITY.md` — short and honest. Sections (eng-review L6 P2-1 — openclaw-style structure):
+
+- **Header cross-reference (eng-review L6 P2-2):** open with one line clarifying that this file is the **vulnerability disclosure policy**, distinct from `docs/discovery/container/SECURITY.md` (which is the **container hardening control checklist**). Same filename, different purpose. Both files link to each other.
+
 - **Supported versions:** `0.1.x` (only). Pre-1.0; no LTS.
-- **Reporting a vulnerability:** email `<address Anson chooses — placeholder TBD until Anson confirms>`. Do NOT open public issues for security bugs. Initial response within 72 hours.
-- **In scope:** the agent runtime, prompt-injection framing, container isolation posture, secrets handling, the SQLite memory layer.
-- **Out of scope:** bugs in upstream providers (DeepInfra, OpenAI, Anthropic), bugs in `python-telegram-bot`, host OS issues, social engineering of bot operators.
+
+- **Trust model** (openclaw-style): one paragraph naming the assumptions. The bot operator (the person running `docker compose up`) is **trusted**. The Telegram chat IDs in the allowlist are **trusted**. The LLM is **untrusted** (anything it outputs may be a prompt-injection attempt). The host OS and Docker daemon are **trusted** (operator chooses what to run).
+
+- **Reporting a vulnerability** — DUAL CHANNEL (mirrors openclaw):
+  1. **Preferred:** GitHub Security Advisories — use the "Report a vulnerability" button on the repo's Security tab. Private, no inbox to monitor, integrated with GitHub's CVE assignment flow.
+  2. **Fallback (if GitHub is unavailable):** email `security@kayaclaw.ai` (forwards via Cloudflare Email Routing to Anson's monitored inbox). Do NOT open public issues for security bugs.
+  - Initial response: target within 72 hours. Patch timeline depends on severity.
+
+- **In scope:** the agent runtime, prompt-injection framing in `agent/runtime.py`, container isolation posture (per `docs/discovery/container/SECURITY.md`), secrets handling (the L0 scrubber, secret registration, traceback redaction), the SQLite memory layer (per-chat isolation, SQL injection safety), the Telegram allowlist enforcement, the env var validation in `_load_env()`.
+
+- **Out of scope:** bugs in upstream providers (DeepInfra, OpenAI, Anthropic), bugs in `python-telegram-bot`, bugs in `pydantic-ai-slim`, host OS issues, social engineering of bot operators, prompt-injection that does NOT cross a security boundary (i.e. tricking the LLM into producing rude output is not in scope; tricking it into emitting a token or escaping the framing IS in scope).
+
 - **No bug bounty at v0.1.** Recognition in `SECURITY-HALL-OF-FAME.md` for accepted reports.
 
 **Acceptance check before proceeding to Step 5:**
 - `LICENSE` exists, contains the literal string "MIT License" and "Copyright (c) 2026 Anson Zeall".
-- `SECURITY.md` exists with all 5 sections.
+- `SECURITY.md` (root) exists with the 7 sections above.
+- The header line cross-references `docs/discovery/container/SECURITY.md`.
+- The container-checklist `docs/discovery/container/SECURITY.md` ALSO updated with a one-line cross-reference to the root SECURITY.md (eng-review L6 P2-2 — both directions).
 - GitHub repo page shows "MIT License" badge (verify after first push).
+- GitHub repo "Security" tab shows the disclosure policy (verify after first push).
+- Cloudflare Email Routing for `security@kayaclaw.ai` → `anson@azentiqnexus.com` is live BEFORE the public flip in Step 6 (test by sending a message to the alias and confirming receipt).
 
 ---
 
@@ -350,3 +369,27 @@ In sequence, before closing this lane:
 8. **`code-reviewer` Post-Test Gate** — after brand-leak grep and Anthropic-import grep both pass. This is the final quality gate for the entire project.
 
 9. **`git-steward`** — the final commit. Message: `"Release v0.1.0: all lanes merged, LOC verified, brand-leak clean"`. Include `LOC: total N/800` from `scripts/loc.sh` output. Include `Codex-reviewed (VERDICT: APPROVED)` for the `scripts/loc.sh` commit; mark the README and NOTICES commits with the appropriate skip line.
+
+---
+
+## 8. Revision Log
+
+**v0.2 (post-/plan-eng-review 2026-05-04):**
+
+P1 (would have shipped wrong public-facing copy):
+- P1-1: §137 example for README "What works" item 1 said `ALLOWED_TELEGRAM_USER_IDS`. L4 plan-eng-review A1 renamed the env var to `CHAT_IDS` (the var is named by what we actually check; `chat_id == user_id` only in DMs, diverges in groups). Plan now says `CHAT_IDS`.
+- P1-2: §188 NOTICES.md template listed `pydantic-ai` as a top-level dep. L5 Step 2 swapped to `pydantic-ai-slim[openai]==1.89.0` because the meta-package pulls in `anthropic` SDK transitively (violates AC-4). Plan now lists the slim package with the correct version.
+- P1-3: CONTRACT-0.1.md item #1 ALSO carried the stale `ALLOWED_TELEGRAM_USER_IDS` name. Since the L6 plan says "quote items 1–10 verbatim into README," shipping the un-fixed CONTRACT would have put the wrong env var name in our marketing copy. CONTRACT-0.1.md updated as the single source of truth (with a one-line rationale referencing L4 A1). CONTRACT item #3 ALSO clarified: "no provider-vendor SDK as a hard *top-level* dependency" — the openai SDK comes in transitively via pydantic-ai-slim[openai], anthropic SDK is verifiably absent.
+
+P2:
+- P2-1: SECURITY.md (root) restructured to mirror openclaw's pattern: GitHub Security Advisories as primary channel, `security@kayaclaw.ai` (Cloudflare-routed to Anson's inbox) as fallback. Added trust-model section. Sharpened in/out-of-scope (e.g. prompt-injection that doesn't cross a security boundary is out of scope; prompt-injection that escapes the framing IS in scope — the openclaw distinction).
+- P2-2: SECURITY.md filename collision (root = disclosure policy; `docs/discovery/container/SECURITY.md` = container control checklist) called out with cross-references at the top of BOTH files. Different files, different purposes; readers landing on either should know the other exists.
+- P2-3: NOTICES.md must list each top-level dep with its PINNED version (e.g. `pydantic-ai-slim[openai]==1.89.0`, `python-telegram-bot==22.7`). License terms can change across major versions; pinning the version pins the license.
+- P2-4: README "Verifying the security posture" section now links to BOTH SECURITY.md files explicitly, plus the `docker inspect` self-verification path. Researchers landing from GitHub's Security tab know where to report; auditors landing from the repo know where to find the control checklist.
+
+P3 (note for code-implementer):
+- P3-1: Step 5 `gh api` branch-protection command — verify the `-f`/`-F` flag mix is current against the latest gh CLI. (`-F` for booleans/numbers, `-f` for strings; nested-key syntax may need quotes.)
+- P3-2: Step 3 `git grep "import anthropic" agent/` is too narrow — broaden to `git grep -E "(import anthropic|from anthropic)" agent/` to also catch the `from` form.
+- P3-3: Step 6 pre-condition grep should also check for accidental email leaks in commits (e.g. `git log --all --format='%ae %an' | grep -v 'anson.zeall@gmail.com\|noreply' | sort -u`).
+
+LOC impact: ~30 lines of plan-doc edits + ~5 lines of CONTRACT-0.1.md edits. No new code, no new abstractions. Step 1/2/3/4/5/6 LOC budgets unchanged.
