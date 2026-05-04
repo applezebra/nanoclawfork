@@ -42,7 +42,7 @@ The size reflects three deliberate choices:
 
 **Prerequisite:** Docker 20.10+ with the Compose v2 plugin. Verify with `docker compose version` (should report `Docker Compose version v2.x` or newer).
 
-1. Clone the repo: `git clone https://github.com/applezebra/kayaclaw && cd kayaclaw`
+1. Clone the repo: `git clone https://github.com/kayaclaw/kayaclaw && cd kayaclaw`
 2. Copy the templates: `cp .env.example .env && cp config.example.yaml config.yaml`
 3. Fill in `.env`: your Telegram bot token (from [@BotFather](https://t.me/BotFather)), your allowed Telegram chat ID (from [@userinfobot](https://t.me/userinfobot)), and your provider API key — DeepInfra by default ([sign up at deepinfra.com](https://deepinfra.com) if you do not have an account). Change the provider in `config.yaml` to point at a different one.
 4. Start it: `docker compose up -d`
