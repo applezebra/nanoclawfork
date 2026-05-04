@@ -1,1 +1,1 @@
-"""Connector sub-package for kayaclaw agent."""
+"""Connector sub-package."""

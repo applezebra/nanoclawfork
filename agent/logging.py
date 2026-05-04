@@ -71,7 +71,7 @@ def _scrub_text(text: str) -> str:
 
 # Layer 1: LogRecord factory.
 _existing_factory = logging.getLogRecordFactory()
-if not getattr(_existing_factory, "_kayaclaw_scrubbing", False):
+if not getattr(_existing_factory, "_secret_scrubbing", False):
     def _scrubbing_record_factory(*args, _orig=_existing_factory, **kwargs):  # type: ignore[no-untyped-def]
         record = _orig(*args, **kwargs)
         if not _SECRETS:
@@ -92,11 +92,11 @@ if not getattr(_existing_factory, "_kayaclaw_scrubbing", False):
                 }
         return record
 
-    _scrubbing_record_factory._kayaclaw_scrubbing = True  # type: ignore[attr-defined]
+    _scrubbing_record_factory._secret_scrubbing = True  # type: ignore[attr-defined]
     logging.setLogRecordFactory(_scrubbing_record_factory)
 
 # Layer 2: Formatter method patch.
-if not getattr(logging.Formatter.format, "_kayaclaw_scrubbing", False):
+if not getattr(logging.Formatter.format, "_secret_scrubbing", False):
     def _scrubbing_format(  # type: ignore[no-untyped-def]
         self, record, _orig=logging.Formatter.format
     ):
@@ -107,8 +107,8 @@ if not getattr(logging.Formatter.format, "_kayaclaw_scrubbing", False):
     ):
         return _scrub_text(_orig(self, exc_info))
 
-    _scrubbing_format._kayaclaw_scrubbing = True  # type: ignore[attr-defined]
-    _scrubbing_format_exception._kayaclaw_scrubbing = True  # type: ignore[attr-defined]
+    _scrubbing_format._secret_scrubbing = True  # type: ignore[attr-defined]
+    _scrubbing_format_exception._secret_scrubbing = True  # type: ignore[attr-defined]
     logging.Formatter.format = _scrubbing_format  # type: ignore[method-assign]
     logging.Formatter.formatException = _scrubbing_format_exception  # type: ignore[method-assign]
 
