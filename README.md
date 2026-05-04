@@ -1,12 +1,14 @@
 # kayaclaw
 
-A Singapore-made, LLM-agnostic personal AI agent built on NanoClaw's container security model — with no Anthropic SDK lock-in.
+Run your own personal AI agent in a hardened Docker container. It talks to you on Telegram, remembers conversations in SQLite, and swaps LLM providers via a config file — no Anthropic SDK in the runtime. Singapore-made fork of [NanoClaw](https://github.com/qwibitai/nanoclaw), ~17× smaller (451 LOC of core Python), MIT licensed.
+
+> **Stability:** 0.x is pre-1.0. APIs, config schema, and storage layout may change between minor versions. Pin a tag if that matters to you.
 
 ## What works (0.1)
 
 1. **Telegram connector**, text-only, single chat-id allowlist (`ALLOWED_TELEGRAM_CHAT_IDS` env var).
 2. **DeepInfra provider** end-to-end via OpenAI-compatible API. Default model: Llama 3.3 70B Instruct.
-3. **PydanticAI runtime**, with no provider-vendor SDK as a hard top-level dependency. The OpenAI SDK ships transitively via `pydantic-ai-slim[openai]`; the Anthropic SDK is verifiably absent from the runtime container. The default `config.example.yaml` ships pointing at a non-Anthropic provider so the out-of-box install does not require an Anthropic account.
+3. **PydanticAI runtime**, with no provider-vendor SDK as a hard top-level dependency. The OpenAI SDK ships transitively via `pydantic-ai-slim[openai]`; the Anthropic SDK is absent from the runtime container (verify after `docker compose build`: `docker run --rm kayaclaw-agent pip show anthropic` exits non-zero). The default `config.example.yaml` ships pointing at a non-Anthropic provider so the out-of-box install does not require an Anthropic account.
 4. **SQLite memory** on a named Docker volume, per-chat history, survives container restart.
 5. **Hardened container**: 16 of 20 controls in `docs/discovery/container/SECURITY.md` verified (the 4 deferred are explicitly tracked).
 6. **Local Docker** deploy. `docker compose up` is the deploy command.
@@ -19,9 +21,9 @@ A Singapore-made, LLM-agnostic personal AI agent built on NanoClaw's container s
 
 **0.1 ships at 451 effective LOC of core Python** (run `bash scripts/loc.sh` to verify).
 
-For comparison: that's roughly **17× smaller than NanoClaw's published source size** (~7,645 effective LOC). Our entire 0.1 fits inside what NanoClaw spends on its Telegram connector alone (~1,000 LOC). The whole agent is **auditable in an afternoon**.
+For comparison: that is roughly **17× smaller than NanoClaw at commit [`8bdc5c4`](https://github.com/qwibitai/nanoclaw/tree/8bdc5c421735) (~7,645 effective LOC)**. Our entire 0.1 fits inside what NanoClaw spends on its Telegram connector alone (~1,000 LOC). The whole agent is **auditable in an afternoon**.
 
-The size is a feature, not an accident:
+The size reflects three deliberate choices:
 - Library leverage (PydanticAI handles the LLM protocol, python-telegram-bot handles the bot lifecycle, sqlite3 from stdlib).
 - Tight scope (one connector, one trusted user, no plugin system, no admin UI).
 - Python is more compact than TypeScript for the same logic.
@@ -38,14 +40,14 @@ The size is a feature, not an accident:
 
 ## Quick start
 
-Prerequisite: Docker + Docker Compose.
+**Prerequisite:** Docker 20.10+ with the Compose v2 plugin. Verify with `docker compose version` (should report `Docker Compose version v2.x` or newer).
 
 1. Clone the repo: `git clone https://github.com/applezebra/kayaclaw && cd kayaclaw`
 2. Copy the templates: `cp .env.example .env && cp config.example.yaml config.yaml`
-3. Fill in `.env`: your Telegram bot token (from [@BotFather](https://t.me/BotFather)), your allowed Telegram chat ID (from [@userinfobot](https://t.me/userinfobot)), and your provider API key (DeepInfra by default — change in `config.yaml` if you use a different provider).
-4. `docker compose up`
-
-That's the deploy. Send a message from your allowlisted chat to the bot — it replies via the configured LLM.
+3. Fill in `.env`: your Telegram bot token (from [@BotFather](https://t.me/BotFather)), your allowed Telegram chat ID (from [@userinfobot](https://t.me/userinfobot)), and your provider API key — DeepInfra by default ([sign up at deepinfra.com](https://deepinfra.com) if you do not have an account). Change the provider in `config.yaml` to point at a different one.
+4. Start it: `docker compose up -d`
+5. Verify it is running: `docker compose ps` should show `kayaclaw-agent-1` with status `Up`. Tail logs with `docker compose logs -f` and you should see `Application started` from python-telegram-bot.
+6. Send a message from your allowlisted chat to the bot — it replies via the configured LLM.
 
 ## Verifying the security posture
 
@@ -55,7 +57,9 @@ kayaclaw is independently verifiable, not just claimed:
 - **Vulnerability disclosure policy:** [`SECURITY.md`](SECURITY.md) — how to report a security issue privately via GitHub Security Advisories or `security@kayaclaw.ai`.
 - **Live container inspection:** `docker inspect kayaclaw-agent-1 -f '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}} {{.HostConfig.SecurityOpt}}'` after `docker compose up` returns `true [ALL] [no-new-privileges:true]`.
 
-## Out of scope (locked — bring to 1.x discussion only)
+## Where 1.x conversations start
+
+The following are deliberately out of scope for the 0.x line. The smallness is the value proposition — adding any of these without a clear case dilutes it. Open an issue if you want to make the case for one:
 
 - Web UI / dashboard
 - Multi-user, multi-tenant, or multi-bot deployment
@@ -69,7 +73,9 @@ kayaclaw is independently verifiable, not just claimed:
 - Episodic memory summarization
 - Image, audio, video input
 
-These are not "missing features." They are **explicitly decided out of scope for the 0.x line.** Bring them to a 1.x discussion if you want them — the smallness IS the value proposition.
+## Contributing
+
+Open an issue before sending a PR — describe what you want to change and why, and wait for a green light. Bug reports should include your OS, Docker version (`docker compose version`), and the relevant `docker compose logs` output.
 
 ## License
 
@@ -77,4 +83,4 @@ MIT. See [`LICENSE`](LICENSE) and [`NOTICES.md`](NOTICES.md) for third-party att
 
 ## Provenance
 
-kayaclaw is a Singapore-made fork derivative of [qwibitai/nanoclaw](https://github.com/qwibitai/nanoclaw) — same security model, no Anthropic lock-in, ~17× smaller. NanoClaw was consulted as a design reference; no code was lifted (verified by `git log --all --full-history -- agent/`). Full attribution in [`NOTICES.md`](NOTICES.md).
+kayaclaw forks [qwibitai/nanoclaw](https://github.com/qwibitai/nanoclaw): same security model, no Anthropic lock-in, ~17× smaller. We consulted NanoClaw as a design reference and lifted no code (verify with `git log --all --full-history -- agent/`). Full attribution lives in [`NOTICES.md`](NOTICES.md).
