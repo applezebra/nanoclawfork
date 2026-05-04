@@ -106,6 +106,27 @@ qwibitai/nanoclaw.
 
 ---
 
+## Visual assets
+
+The project's brand artwork was generated with AI image-generation tools, then
+post-processed with ImageMagick. Disclosed here in keeping with the
+project's brand commitment to transparency.
+
+- `assets/kayaclaw-logo.png` — chili-crab-and-kaya-toast mascot. Generated
+  with Google Gemini Nano Banana (`gemini-3-pro-image-preview`), May 2026.
+  Background knocked out to a true alpha channel via ImageMagick
+  (`-fuzz 8% -transparent white`).
+- `assets/kayaclaw-social-preview.jpg` — 1280x640 Singapore-beach social
+  preview banner (chili crab on a beach towel with a laptop, three
+  unbranded AI mascot characters, Marina Bay Sands silhouette in the
+  distance). Same generation method as the logo, then center-cropped from
+  1376x768 to a 2:1 social-preview spec.
+
+The image-generation prompts that produced these assets are reproducible;
+ask in `Discussions` if you want them.
+
+---
+
 ## Reporting an issue with this attribution
 
 If you believe a dependency is missing, mis-licensed, or that this project
