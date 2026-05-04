@@ -1,6 +1,6 @@
 # kayaclaw
 
-Run your own personal AI agent in a hardened Docker container. It talks to you on Telegram, remembers conversations in SQLite, and swaps LLM providers via a config file — no Anthropic SDK in the runtime. Singapore-made fork of [NanoClaw](https://github.com/qwibitai/nanoclaw), ~17× smaller (451 LOC of core Python), MIT licensed.
+Run your own personal AI agent in a hardened Docker container. It talks to you on Telegram, remembers conversations in SQLite, and swaps LLM providers via a config file — no Anthropic SDK in the runtime. Singapore-made personal AI agent inspired by [NanoClaw](https://github.com/qwibitai/nanoclaw)'s container security model, ~17× smaller (451 LOC of core Python), MIT licensed.
 
 > **Stability:** 0.x is pre-1.0. APIs, config schema, and storage layout may change between minor versions. Pin a tag if that matters to you.
 
@@ -83,4 +83,4 @@ MIT. See [`LICENSE`](LICENSE) and [`NOTICES.md`](NOTICES.md) for third-party att
 
 ## Provenance
 
-kayaclaw forks [qwibitai/nanoclaw](https://github.com/qwibitai/nanoclaw): same security model, no Anthropic lock-in, ~17× smaller. We consulted NanoClaw as a design reference and lifted no code (verify with `git log --all --full-history -- agent/`). Full attribution lives in [`NOTICES.md`](NOTICES.md).
+kayaclaw is a clean-room re-implementation of [NanoClaw](https://github.com/qwibitai/nanoclaw)'s container security posture in Python — same hardening controls, no Anthropic lock-in, ~17× smaller. NanoClaw was consulted as a design reference; **no NanoClaw source code is included.** Verify the clean-room claim with `git log --all --full-history -- agent/` (every commit is authored by Anson Zeall; there is no upstream merge point). Full attribution and licence terms live in [`NOTICES.md`](NOTICES.md).

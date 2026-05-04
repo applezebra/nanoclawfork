@@ -1,5 +1,7 @@
 # Container Security Posture
 
+> **This file is the container hardening control checklist** — what controls are enforced and how to verify them. It is **not** the vulnerability disclosure policy; that lives at the repo root in [`SECURITY.md`](../../../SECURITY.md). Same filename, different purpose. Auditors verifying container controls should be on this page; researchers reporting a vulnerability should be on the root one.
+
 **Goal:** Match NanoClaw's hardening level, control-for-control. Nothing weaker.
 
 This file is the audit checklist. Every control listed here MUST be enforced.
