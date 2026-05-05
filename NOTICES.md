@@ -45,15 +45,11 @@ versions; pinning the version pins the license.
 
 ### Notable transitive dependencies
 
-- **`openai` (Python SDK)** — pulled in transitively by `pydantic-ai-slim[openai]`.
-  Apache-2.0 license. Used by the runtime to talk to OpenAI-compatible providers
-  (DeepInfra, etc.) via the OpenAI HTTP API. Pinned indirectly to whatever
-  `pydantic-ai-slim==1.89.0` resolves at build time — see the locked image.
-- **`anthropic` (Python SDK)** — **explicitly absent.** The deliberate choice
-  of `pydantic-ai-slim[openai]` over the `pydantic-ai` meta-package is what
-  keeps the Anthropic SDK out of the runtime container (per NFR-AG / AC-4).
-  Verify in a built container with: `docker run --rm kayaclaw-agent pip show
-  anthropic` — exits non-zero.
+- **`openai` (Python SDK)**, pulled in transitively by `pydantic-ai-slim[openai]`.
+  Apache-2.0 license. Used as the protocol client for the OpenAI-compatible HTTP
+  format that most providers (DeepInfra, OpenRouter, Groq, Together, vLLM, etc.)
+  speak today. Verify the dep tree in a built container with `docker run --rm
+  kayaclaw-agent pip list`.
 
 ### Standard library
 
@@ -68,41 +64,27 @@ completeness because they appear in the dependency graph readers might audit:
 
 ---
 
-## Design references (no code lifted)
+## Design references
 
-**NanoClaw (`qwibitai/nanoclaw`)** — MIT licensed — was consulted as a design
-reference during the connector audit phase (May 2026). The audit reviewed
-NanoClaw's TypeScript Telegram connector for security patterns and
-architectural ideas. The review notes are checked in at
+**NanoClaw (`qwibitai/nanoclaw`)**, MIT licensed, was consulted as a design
+reference during the connector audit phase (May 2026). No source code was
+copied. The audit notes are at
 [`docs/spec/CONNECTOR-AUDIT-telegram.md`](docs/spec/CONNECTOR-AUDIT-telegram.md).
 
-**No code was lifted from NanoClaw.** The CONNECTOR-AUDIT verdict is
-"DO NOT LIFT" — the language mismatch (TypeScript vs Python) makes a direct
-lift impractical, and the Python connector was written fresh against
-`python-telegram-bot`. Security requirements derived from the audit are
-incorporated as design requirements for this project's connector lane.
+The container hardening posture in
+[`docs/discovery/container/SECURITY.md`](docs/discovery/container/SECURITY.md)
+was informed by NanoClaw's published Docker setup, but every control was
+independently re-derived against the Docker Engine documentation and verified
+with a runnable `docker inspect` or `docker run` command.
 
-The container hardening posture in `docs/discovery/container/SECURITY.md` was
-informed by NanoClaw's published Docker setup, but every control listed there
-was independently re-derived against the Docker Engine documentation and
-verified with a runnable `docker inspect` or `docker run` command. There is no
-direct copy of NanoClaw's Dockerfile, Compose file, or container scripts.
-
-NanoClaw is copyright its respective contributors and is separately licensed.
-This project contains no NanoClaw source code.
-
-### Verifying no code was lifted
-
-To verify independently that the `agent/` tree was written from scratch with
-no upstream import history:
+To verify independently:
 
 ```bash
 git log --all --full-history -- agent/
 ```
 
-Every commit author should be `Anson Zeall` and every parent reachable from
-the initial commit should be a fresh-repo commit, not a fork point from
-qwibitai/nanoclaw.
+Every commit should be authored by Anson Zeall, with no fork history from
+`qwibitai/nanoclaw`.
 
 ---
 
