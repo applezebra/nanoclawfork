@@ -36,6 +36,56 @@ A personal AI agent that runs in a hardened Docker container. Telegram in front,
 5. Verify it is running: `docker compose ps` should show `kayaclaw-agent-1` with status `Up`. Tail logs with `docker compose logs -f` and you should see `Application started` from python-telegram-bot.
 6. Send a message from your allowlisted chat to the bot — it replies via the configured LLM.
 
+## Switching providers
+
+kayaclaw works with any provider that speaks the OpenAI-compatible HTTP format. DeepInfra is the default. Two more are verified end-to-end and shown below.
+
+### OpenRouter
+
+OpenRouter routes to many upstream models. Sign up at [openrouter.ai](https://openrouter.ai), create an API key, then in `config.yaml`:
+
+```yaml
+providers:
+  openrouter:
+    kind: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    allowed_models:
+      - meta-llama/llama-3.3-70b-instruct
+
+agents:
+  personal-assistant:
+    model: openrouter/meta-llama/llama-3.3-70b-instruct
+    system_prompt: "You are a helpful assistant."
+    connectors:
+      - telegram
+```
+
+Set `OPENROUTER_API_KEY` in your `.env`. Verified with Llama 3.3 70B Instruct.
+
+### Groq
+
+Groq runs open-source models on its own inference hardware. Sign up at [console.groq.com](https://console.groq.com), create an API key, then in `config.yaml`:
+
+```yaml
+providers:
+  groq:
+    kind: openai_compatible
+    base_url: https://api.groq.com/openai/v1
+    api_key_env: GROQ_API_KEY
+    allowed_models:
+      - llama-3.3-70b-versatile
+
+agents:
+  personal-assistant:
+    model: groq/llama-3.3-70b-versatile
+    system_prompt: "You are a helpful assistant."
+    connectors:
+      - telegram
+```
+
+Set `GROQ_API_KEY` in your `.env`. Verified with Llama 3.3 70B Versatile.
+
 ## Verifying the security posture
 
 kayaclaw is independently verifiable, not just claimed:
