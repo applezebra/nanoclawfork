@@ -29,6 +29,23 @@ providers:
     allowed_models:
       - meta-llama/Llama-3.3-70B-Instruct
 
+  # Alternative provider examples (verified). Uncomment one to use it,
+  # and update the agents.personal-assistant.model line below.
+  #
+  # openrouter:
+  #   kind: openai_compatible
+  #   base_url: https://openrouter.ai/api/v1
+  #   api_key_env: OPENROUTER_API_KEY
+  #   allowed_models:
+  #     - meta-llama/llama-3.3-70b-instruct
+  #
+  # groq:
+  #   kind: openai_compatible
+  #   base_url: https://api.groq.com/openai/v1
+  #   api_key_env: GROQ_API_KEY
+  #   allowed_models:
+  #     - llama-3.3-70b-versatile
+
 agents:
   # Agent group key — referenced in connector configuration to select which
   # group handles incoming messages.
