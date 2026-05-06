@@ -2,6 +2,14 @@
 
 All notable changes to kayaclaw are documented in this file. Format follows Keep a Changelog (https://keepachangelog.com/en/1.1.0/). This project adheres to Semantic Versioning (https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-05-06
+
+### Added
+- Anthropic Claude (sonnet-4.5) and Google Gemini (2.0 Flash) examples via OpenRouter in the README.
+
+### Changed
+- Reframed the "Switching providers" section to make explicit that any model the provider serves works, not just the ones shown.
+
 ## [0.1.1] - 2026-05-06
 
 ### Added

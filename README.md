@@ -38,11 +38,17 @@ A personal AI agent that runs in a hardened Docker container. Telegram in front,
 
 ## Switching providers
 
-kayaclaw works with any provider that speaks the OpenAI-compatible HTTP format. DeepInfra is the default. Two more are verified end-to-end and shown below.
+kayaclaw works with any provider that speaks the OpenAI-compatible HTTP format. Whatever model that provider offers, you can point your agent at it. The configs below are starting points. The same shape works for any other model the provider serves: list it in `allowed_models` and reference it in `agents.personal-assistant.model`.
+
+### DeepInfra (default)
+
+DeepInfra hosts open-source models on its own infrastructure. Sign up at [deepinfra.com](https://deepinfra.com), create an API key, set `DEEPINFRA_API_KEY` in your `.env`. The default config in `config.example.yaml` uses Llama 3.3 70B Instruct. Any model DeepInfra serves works the same way.
 
 ### OpenRouter
 
-OpenRouter routes to many upstream models. Sign up at [openrouter.ai](https://openrouter.ai), create an API key, then in `config.yaml`:
+OpenRouter routes to many upstream models from one OpenAI-compatible endpoint. Sign up at [openrouter.ai](https://openrouter.ai), create an API key, set `OPENROUTER_API_KEY` in your `.env`, then pick any model in `config.yaml`.
+
+Llama 3.3 70B Instruct:
 
 ```yaml
 providers:
@@ -61,11 +67,49 @@ agents:
       - telegram
 ```
 
-Set `OPENROUTER_API_KEY` in your `.env`. Verified with Llama 3.3 70B Instruct.
+Anthropic Claude (sonnet-4.5):
+
+```yaml
+providers:
+  openrouter:
+    kind: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    allowed_models:
+      - anthropic/claude-sonnet-4.5
+
+agents:
+  personal-assistant:
+    model: openrouter/anthropic/claude-sonnet-4.5
+    system_prompt: "You are a helpful assistant."
+    connectors:
+      - telegram
+```
+
+Google Gemini 2.0 Flash:
+
+```yaml
+providers:
+  openrouter:
+    kind: openai_compatible
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    allowed_models:
+      - google/gemini-2.0-flash-001
+
+agents:
+  personal-assistant:
+    model: openrouter/google/gemini-2.0-flash-001
+    system_prompt: "You are a helpful assistant."
+    connectors:
+      - telegram
+```
+
+Any other OpenRouter-served model works the same way: list it in `allowed_models` and reference it in `agents.personal-assistant.model`.
 
 ### Groq
 
-Groq runs open-source models on its own inference hardware. Sign up at [console.groq.com](https://console.groq.com), create an API key, then in `config.yaml`:
+Groq runs open-source models on its own inference hardware. Sign up at [console.groq.com](https://console.groq.com), create an API key, set `GROQ_API_KEY` in your `.env`. Llama 3.3 70B Versatile:
 
 ```yaml
 providers:
@@ -84,7 +128,7 @@ agents:
       - telegram
 ```
 
-Set `GROQ_API_KEY` in your `.env`. Verified with Llama 3.3 70B Versatile.
+Any other Groq-served model works the same way.
 
 ## Verifying the security posture
 

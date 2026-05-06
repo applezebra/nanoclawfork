@@ -38,6 +38,9 @@ providers:
   #   api_key_env: OPENROUTER_API_KEY
   #   allowed_models:
   #     - meta-llama/llama-3.3-70b-instruct
+  #     # any other OpenRouter-served model works the same way, e.g.:
+  #     # - anthropic/claude-sonnet-4.5
+  #     # - google/gemini-2.0-flash-001
   #
   # groq:
   #   kind: openai_compatible
