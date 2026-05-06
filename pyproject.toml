@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "kayaclaw"
-version = "0.1.0"
+version = "0.1.1"
 description = "kayaclaw — a Singapore-made, LLM-agnostic NanoClaw fork. Same security posture, no Anthropic lock-in."
 # `readme` field intentionally omitted in L0 — README.md is created in L6.
 # Add `readme = "README.md"` here as part of L6 release polish.
