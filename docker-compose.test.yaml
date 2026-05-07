@@ -1,0 +1,47 @@
+# docker-compose.test.yaml — kayaclaw_tian_bot test harness.
+# Untracked, gitignored. Not meant for production. Used to verify a kayaclaw
+# build end-to-end against a Telegram bot whose token we are happy to expose
+# to a development image, before any change to the runtime path is pushed.
+#
+# Run with:  docker compose -f docker-compose.test.yaml --env-file .env.test up
+# Stop with: docker compose -f docker-compose.test.yaml down
+
+services:
+  agent:
+    build: .
+    image: kayaclaw:test
+    restart: "no"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - TELEGRAM_BOT_TOKEN
+      - ALLOWED_TELEGRAM_CHAT_IDS
+      - OPENROUTER_API_KEY
+      - DEEPINFRA_API_KEY
+      - GROQ_API_KEY
+      - AGENT_DATA_DIR=${AGENT_DATA_DIR:-/data}
+      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
+    volumes:
+      - agent-test-data:/data
+      - ./config.test.yaml:/config/config.yaml:ro
+    tmpfs:
+      - /tmp:mode=1777,noexec,nosuid,nodev,size=64m
+    networks:
+      - agent-test-net
+    cpus: 1.0
+    mem_limit: 512m
+    pids_limit: 100
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  agent-test-net:
+    driver: bridge
+
+volumes:
+  agent-test-data:
