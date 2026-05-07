@@ -4,9 +4,9 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "kayaclaw"
-version = "0.1.2"
-description = "kayaclaw — a Singapore-made, LLM-agnostic NanoClaw fork. Same security posture, no Anthropic lock-in."
-# `readme` field intentionally omitted in L0 — README.md is created in L6.
+version = "0.1.3"
+description = "A small, hardened AI agent for Telegram. SQLite memory, your choice of OpenAI-compatible LLM provider."
+# `readme` field intentionally omitted in L0. README.md is created in L6.
 # Add `readme = "README.md"` here as part of L6 release polish.
 license = {text = "MIT"}
 requires-python = ">=3.12"
@@ -16,7 +16,7 @@ dependencies = [
     # anthropic + openai + every provider SDK transitively, which violates
     # AC-4 ("zero Anthropic surface in the deployed agent"). The [openai]
     # extra installs only the OpenAI-compatible provider stack we actually
-    # use. Discovered during L5 Step 2 acceptance testing — anthropic 0.97.0
+    # use. Discovered during L5 Step 2 acceptance testing: anthropic 0.97.0
     # was reachable inside the container despite the kayaclaw spec requiring
     # zero Anthropic surface. (NFR-AG.)
     "pydantic-ai-slim[openai]==1.89.0",
@@ -25,13 +25,13 @@ dependencies = [
 ]
 
 [project.scripts]
-# `entrypoint.sh` calls `exec agent` inside the container — that resolves
+# `entrypoint.sh` calls `exec agent` inside the container. That resolves
 # to this entry point after pip-install. Added in L5 Step 1 (eng-review P2-1).
 agent = "agent.__main__:main"
 
 [tool.flit.module]
 # The distribution name is `kayaclaw` (PyPI / branding) but the import path
 # is `agent` (NFR-BD2: no brand in import paths). Point flit at the actual
-# package folder. Added in L5 Step 2 — without this, `pip install .` fails
+# package folder. Added in L5 Step 2. Without this, `pip install .` fails
 # with "No file/folder found for module kayaclaw".
 name = "agent"

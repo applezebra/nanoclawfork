@@ -175,22 +175,22 @@ def _make_config(provider_override: dict | None = None) -> Config:
 
 def test_resolve_happy_path(monkeypatch):
     """Happy path: resolve known model with API key set returns ResolvedProvider."""
-    monkeypatch.setenv("DEEPINFRA_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     config = load_config(_EXAMPLE_CONFIG)
-    result = resolve(config, "deepinfra/meta-llama/Llama-3.3-70B-Instruct")
+    result = resolve(config, "openrouter/meta-llama/llama-3.3-70b-instruct")
     assert isinstance(result, ResolvedProvider)
-    assert result.provider_name == "deepinfra"
+    assert result.provider_name == "openrouter"
     assert result.kind == "openai_compatible"
-    assert result.model_id == "meta-llama/Llama-3.3-70B-Instruct"
+    assert result.model_id == "meta-llama/llama-3.3-70b-instruct"
     assert result.api_key == "test-key"
 
 
 def test_resolve_provider_name_populated(monkeypatch):
     """P2-4: provider_name field is set to the registry key, not the kind."""
-    monkeypatch.setenv("DEEPINFRA_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     config = load_config(_EXAMPLE_CONFIG)
-    result = resolve(config, "deepinfra/meta-llama/Llama-3.3-70B-Instruct")
-    assert result.provider_name == "deepinfra"
+    result = resolve(config, "openrouter/meta-llama/llama-3.3-70b-instruct")
+    assert result.provider_name == "openrouter"
 
 
 def test_resolve_unknown_provider_raises_config_error():
@@ -205,15 +205,15 @@ def test_resolve_unknown_provider_raises_config_error():
 
 def test_resolve_disallowed_model_raises_config_error(monkeypatch):
     """Model not in allowed_models raises ConfigError naming model and allowed list."""
-    monkeypatch.setenv("DEEPINFRA_API_KEY", "test-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     config = load_config(_EXAMPLE_CONFIG)
     with pytest.raises(ConfigError) as excinfo:
-        resolve(config, "deepinfra/gpt-4o")
+        resolve(config, "openrouter/gpt-4o")
     err = str(excinfo.value)
     assert err  # non-empty
     assert "gpt-4o" in err
     # Should also mention what IS allowed so operator can diagnose
-    assert "meta-llama/Llama-3.3-70B-Instruct" in err
+    assert "meta-llama/llama-3.3-70b-instruct" in err
 
 
 def test_resolve_empty_allowed_models_denies_all(monkeypatch):
@@ -236,13 +236,13 @@ def test_resolve_wildcard_allows_any(monkeypatch):
 
 def test_resolve_missing_api_key_raises_config_error(monkeypatch):
     """Missing API key env var raises ConfigError naming the variable."""
-    monkeypatch.delenv("DEEPINFRA_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     config = load_config(_EXAMPLE_CONFIG)
     with pytest.raises(ConfigError) as excinfo:
-        resolve(config, "deepinfra/meta-llama/Llama-3.3-70B-Instruct")
+        resolve(config, "openrouter/meta-llama/llama-3.3-70b-instruct")
     err = str(excinfo.value)
     assert err  # non-empty
-    assert "DEEPINFRA_API_KEY" in err
+    assert "OPENROUTER_API_KEY" in err
 
 
 def test_resolve_anthropic_raises_not_implemented():
@@ -277,11 +277,11 @@ def test_resolve_config_error_messages_are_nonempty(monkeypatch):
 
     # Disallowed model (key not needed — fails before step 4)
     with pytest.raises(ConfigError) as exc:
-        resolve(config, "deepinfra/not-allowed-model")
+        resolve(config, "openrouter/not-allowed-model")
     assert str(exc.value)
 
     # Missing API key
-    monkeypatch.delenv("DEEPINFRA_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     with pytest.raises(ConfigError) as exc:
-        resolve(config, "deepinfra/meta-llama/Llama-3.3-70B-Instruct")
+        resolve(config, "openrouter/meta-llama/llama-3.3-70b-instruct")
     assert str(exc.value)

@@ -1,46 +1,51 @@
-# config.example.yaml — committed template for the agent configuration.
+# config.example.yaml. Committed template for the agent configuration.
 # The live config.yaml (which contains real API keys and customised settings)
 # is gitignored and derived from this file. Copy this file to config.yaml and
 # fill in your values before running the agent.
 
 providers:
-  # Provider registry key — used as the prefix in agent model references
-  # (e.g. "deepinfra/meta-llama/Llama-3.3-70B-Instruct").
-  deepinfra:
+  # Provider registry key. Used as the prefix in agent model references
+  # (e.g. "openrouter/meta-llama/llama-3.3-70b-instruct").
+  #
+  # The example below uses OpenRouter as a starting point because one key
+  # gets you many models. To switch providers, comment this block out and
+  # uncomment one of the alternatives below. See "Switching providers"
+  # in the README.
+  openrouter:
     # kind: which client protocol this provider speaks.
-    # "openai_compatible" — uses the OpenAI-compatible REST API (base_url required).
-    # "anthropic"         — Anthropic native API (not yet supported in 0.1).
+    # "openai_compatible". Uses the OpenAI-compatible REST API (base_url required).
+    # "anthropic". Anthropic native API (not yet supported in 0.1).
     kind: openai_compatible
 
     # base_url: required when kind is openai_compatible.
     # This is the root URL of the provider's OpenAI-compatible endpoint.
-    base_url: https://api.deepinfra.com/v1/openai
+    base_url: https://openrouter.ai/api/v1
 
     # api_key_env: the NAME of the environment variable that holds the API key.
-    # The key value is never stored here — only the variable name.
+    # The key value is never stored here. Only the variable name.
     # Set the actual key in your shell or .env file.
-    api_key_env: DEEPINFRA_API_KEY
+    api_key_env: OPENROUTER_API_KEY
 
     # allowed_models: which models this provider is permitted to serve.
     # DENY-by-default semantics:
-    #   []      — deny all models (operator must explicitly list each one)
-    #   ["*"]   — any model is allowed (escape hatch; use only if you trust the provider fully)
-    #   [a, b]  — exact match required; only listed model IDs are routed to this provider
+    #   []      = deny all models (operator must explicitly list each one)
+    #   ["*"]   = any model is allowed (escape hatch; use only if you trust the provider fully)
+    #   [a, b]  = exact match required; only listed model IDs are routed to this provider
     allowed_models:
-      - meta-llama/Llama-3.3-70B-Instruct
+      - meta-llama/llama-3.3-70b-instruct
+      # Any other OpenRouter-served model works the same way, e.g.:
+      # - anthropic/claude-sonnet-4.5
+      # - google/gemini-2.0-flash-001
 
-  # Alternative provider examples (verified). Uncomment one to use it,
+  # Alternative providers (verified). Uncomment one to use it,
   # and update the agents.personal-assistant.model line below.
   #
-  # openrouter:
+  # deepinfra:
   #   kind: openai_compatible
-  #   base_url: https://openrouter.ai/api/v1
-  #   api_key_env: OPENROUTER_API_KEY
+  #   base_url: https://api.deepinfra.com/v1/openai
+  #   api_key_env: DEEPINFRA_API_KEY
   #   allowed_models:
-  #     - meta-llama/llama-3.3-70b-instruct
-  #     # any other OpenRouter-served model works the same way, e.g.:
-  #     # - anthropic/claude-sonnet-4.5
-  #     # - google/gemini-2.0-flash-001
+  #     - meta-llama/Llama-3.3-70B-Instruct
   #
   # groq:
   #   kind: openai_compatible
@@ -50,14 +55,14 @@ providers:
   #     - llama-3.3-70b-versatile
 
 agents:
-  # Agent group key — referenced in connector configuration to select which
+  # Agent group key. Referenced in connector configuration to select which
   # group handles incoming messages.
   personal-assistant:
-    # model: "<provider>/<model-id>" — the slash is mandatory.
+    # model: "<provider>/<model-id>". The slash is mandatory.
     # The provider part must match a key in the providers section above.
     # The model-id part must appear in that provider's allowed_models list
     # (or allowed_models must contain "*").
-    model: deepinfra/meta-llama/Llama-3.3-70B-Instruct
+    model: openrouter/meta-llama/llama-3.3-70b-instruct
 
     # system_prompt: the system instruction sent to the model on every turn.
     system_prompt: "You are a helpful assistant."

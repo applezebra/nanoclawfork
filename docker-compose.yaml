@@ -17,7 +17,13 @@ services:
       # SECURITY.md control 14. See .env.example for the required keys.
       - TELEGRAM_BOT_TOKEN
       - ALLOWED_TELEGRAM_CHAT_IDS      # eng-review L5 P1-1: chat_id, NOT user_id
+      # Provider API keys. Forward all three of the documented providers;
+      # the agent's startup validation only enforces presence for keys
+      # referenced by an active provider in config.yaml, so unused keys
+      # being unset is fine.
+      - OPENROUTER_API_KEY
       - DEEPINFRA_API_KEY
+      - GROQ_API_KEY
       # Config knobs (not secrets) — ${VAR:-default} lets .env override
       # while preserving a sensible default. codex-review L5-Step3 P1: a
       # bare `KEY=value` form would block .env overrides entirely.

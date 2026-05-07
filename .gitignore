@@ -1,6 +1,12 @@
-# Secrets and live config — never commit these
+# Secrets and live config. Never commit these.
+# (.env.example IS committed; the patterns below carve out everything else.)
 .env
+.env.test
+.env.local
+.env.production
 config.yaml
+config.test.yaml
+config.local.yaml
 
 # Local data volume (SQLite, uploads)
 data/

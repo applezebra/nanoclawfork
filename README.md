@@ -27,14 +27,31 @@ A personal AI agent that runs in a hardened Docker container. Telegram in front,
 
 ## Quick start
 
-**Prerequisite:** Docker 20.10+ with the Compose v2 plugin. Verify with `docker compose version` (should report `Docker Compose version v2.x` or newer).
+Prerequisite: Docker 20.10+ with the Compose v2 plugin. Verify with `docker compose version`.
 
-1. Clone the repo: `git clone https://github.com/kayaclaw/kayaclaw && cd kayaclaw`
-2. Copy the templates: `cp .env.example .env && cp config.example.yaml config.yaml`
-3. Fill in `.env`: your Telegram bot token (from [@BotFather](https://t.me/BotFather)), your allowed Telegram chat ID (message [@userinfobot](https://t.me/userinfobot) and it will reply with your chat ID), and your provider API key — DeepInfra by default ([sign up at deepinfra.com](https://deepinfra.com) if you do not have an account). Change the provider in `config.yaml` to point at a different one.
-4. Start it: `docker compose up -d`
-5. Verify it is running: `docker compose ps` should show `kayaclaw-agent-1` with status `Up`. Tail logs with `docker compose logs -f` and you should see `Application started` from python-telegram-bot.
-6. Send a message from your allowlisted chat to the bot — it replies via the configured LLM.
+Clone and copy the templates:
+
+```
+git clone https://github.com/kayaclaw/kayaclaw && cd kayaclaw
+cp .env.example .env
+cp config.example.yaml config.yaml
+```
+
+Fill in three values in `.env`:
+
+- `TELEGRAM_BOT_TOKEN` from [@BotFather](https://t.me/BotFather)
+- `ALLOWED_TELEGRAM_CHAT_IDS` from [@userinfobot](https://t.me/userinfobot)
+- `OPENROUTER_API_KEY` from [openrouter.ai](https://openrouter.ai). The example ships with OpenRouter as a starting point because one key gets you many models (Llama, Claude, Gemini, and more). You can swap to DeepInfra, Groq, or any OpenAI-compatible provider; see "Switching providers" below.
+
+Bring it up:
+
+```
+docker compose up -d
+```
+
+Send a message from your allowlisted Telegram chat. The bot replies via the configured LLM.
+
+If it doesn't reply, check the logs with `docker compose logs -f`. Stop with `docker compose down`.
 
 ## Switching providers
 
@@ -134,13 +151,13 @@ Any other Groq-served model works the same way.
 
 kayaclaw is independently verifiable, not just claimed:
 
-- **Container hardening checklist:** [`docs/discovery/container/SECURITY.md`](docs/discovery/container/SECURITY.md) — 16 controls implemented, 4 deferred to stage 2. Every control has a runnable `docker inspect` or `docker run` verification command. Anyone can clone the repo and re-prove every claim.
-- **Vulnerability disclosure policy:** [`SECURITY.md`](SECURITY.md) — how to report a security issue privately via GitHub Security Advisories or `security@kayaclaw.ai`.
+- **Container hardening checklist:** [`docs/discovery/container/SECURITY.md`](docs/discovery/container/SECURITY.md). 16 controls implemented, 4 deferred to stage 2. Every control has a runnable `docker inspect` or `docker run` verification command. Anyone can clone the repo and re-prove every claim.
+- **Vulnerability disclosure policy:** [`SECURITY.md`](SECURITY.md). How to report a security issue privately via GitHub Security Advisories or `security@kayaclaw.ai`.
 - **Live container inspection:** `docker inspect kayaclaw-agent-1 -f '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}} {{.HostConfig.SecurityOpt}}'` after `docker compose up` returns `true [ALL] [no-new-privileges:true]`.
 
 ## Where 1.x conversations start
 
-The following are deliberately out of scope for the 0.x line. The smallness is the value proposition — adding any of these without a clear case dilutes it. Open an issue if you want to make the case for one:
+The following are deliberately out of scope for the 0.x line. The smallness is the value proposition; adding any of these without a clear case dilutes it. Open an issue if you want to make the case for one:
 
 - Web UI / dashboard
 - Multi-user, multi-tenant, or multi-bot deployment
@@ -156,7 +173,7 @@ The following are deliberately out of scope for the 0.x line. The smallness is t
 
 ## Contributing
 
-Open an issue before sending a PR — describe what you want to change and why, and wait for a green light. Bug reports should include your OS, Docker version (`docker compose version`), and the relevant `docker compose logs` output.
+Open an issue before sending a PR. Describe what you want to change and why, and wait for a green light. Bug reports should include your OS, Docker version (`docker compose version`), and the relevant `docker compose logs` output.
 
 ## License
 
