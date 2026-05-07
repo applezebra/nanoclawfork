@@ -32,15 +32,31 @@ def main(config_path: Path = _DEFAULT_CONFIG_PATH) -> int:
                 f"Agent group 'personal-assistant' not found in config; "
                 f"defined groups: {list(config.agents.keys())}"
             )
-        resolved = resolve(config, agent_spec.model)
         # Drive secret registration from config, not env-var name patterns.
         # The L0 _collect_secrets() only catches *_API_KEY; a self-hoster
         # using OPENAI_TOKEN, GROQ_KEY, HF_TOKEN, etc. would otherwise
         # have their key NOT registered with the scrubber and could leak
         # in tracebacks (security-audit L5 P2-1).
-        for provider in config.providers.values():
-            if provider.api_key_env:
-                register_secret(os.environ.get(provider.api_key_env, ""))
+        #
+        # Validate every configured provider's api_key_env at startup,
+        # before resolve() picks the active model. resolve() also checks
+        # the active provider's key, but only that one. Validating ALL
+        # configured providers up front catches the "user switched
+        # providers and forgot to update .env" case AND the "user has
+        # a fallback provider configured but its key is missing" case.
+        # If you don't intend to use a provider, comment it out.
+        for provider_name, provider in config.providers.items():
+            if not provider.api_key_env:
+                continue
+            api_key = os.environ.get(provider.api_key_env, "").strip()
+            if not api_key:
+                raise ConfigError(
+                    f"Missing API key: env var '{provider.api_key_env}' "
+                    f"(referenced by provider '{provider_name}' in "
+                    f"config.yaml) is not set or is empty"
+                )
+            register_secret(api_key)
+        resolved = resolve(config, agent_spec.model)
     except (ConfigError, NotImplementedError) as e:
         log.critical("Startup failed: %s", e)
         return 1

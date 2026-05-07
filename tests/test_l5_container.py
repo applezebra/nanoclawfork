@@ -82,6 +82,45 @@ class TestMainProviderResolve:
         assert any("Startup failed" in r.getMessage() for r in caplog.records)
 
 
+class TestMainApiKeyValidation:
+    def test_missing_api_key_returns_1_with_clear_message(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Provider's api_key_env not set in env → ConfigError → exit 1.
+
+        Catches the case where a user switches providers in config.yaml
+        but forgets to set the matching API key in .env. Without this
+        validation the agent boots and only fails at the first user message.
+        """
+        cfg = _write_config(tmp_path)
+        monkeypatch.delenv("DEEPINFRA_API_KEY", raising=False)
+        with caplog.at_level(logging.CRITICAL, logger="agent.main"):
+            rc = main_mod.main(cfg)
+        assert rc == 1
+        msgs = " ".join(r.getMessage() for r in caplog.records)
+        assert "Missing API key" in msgs
+        assert "DEEPINFRA_API_KEY" in msgs
+        assert "deepinfra" in msgs
+
+    def test_empty_api_key_returns_1(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An api_key_env set to empty string is treated as missing."""
+        cfg = _write_config(tmp_path)
+        monkeypatch.setenv("DEEPINFRA_API_KEY", "   ")
+        with caplog.at_level(logging.CRITICAL, logger="agent.main"):
+            rc = main_mod.main(cfg)
+        assert rc == 1
+        msgs = " ".join(r.getMessage() for r in caplog.records)
+        assert "Missing API key" in msgs
+
+
 class TestMainStartupLogging:
     def test_startup_log_contains_provider_and_model(
         self,
