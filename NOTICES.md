@@ -57,7 +57,7 @@ The following are part of the Python 3.12 standard library and are governed by
 the [PSF License](https://docs.python.org/3/license.html). Listed here for
 completeness because they appear in the dependency graph readers might audit:
 
-- `sqlite3` — used by `agent/memory.py` for per-chat conversation history.
+- `sqlite3`. Used by `agent/memory.py` for per-chat conversation history.
   No third-party SQLite wrapper is taken as a top-level dependency
   (per DECISIONS.md D2).
 - `asyncio`, `logging`, `pathlib`, `os`, `threading`, `re`, `json`, `typing`.
@@ -94,11 +94,11 @@ The project's brand artwork was generated with AI image-generation tools, then
 post-processed with ImageMagick. Disclosed here in keeping with the
 project's brand commitment to transparency.
 
-- `assets/kayaclaw-logo.png` — chili-crab-and-kaya-toast mascot. Generated
+- `assets/kayaclaw-logo.png`. Chili-crab-and-kaya-toast mascot. Generated
   with Google Gemini Nano Banana (`gemini-3-pro-image-preview`), May 2026.
   Background knocked out to a true alpha channel via ImageMagick
   (`-fuzz 8% -transparent white`).
-- `assets/kayaclaw-social-preview.jpg` — 1280x640 Singapore-beach social
+- `assets/kayaclaw-social-preview.jpg`. 1280x640 Singapore-beach social
   preview banner (chili crab on a beach towel with a laptop, three
   unbranded AI mascot characters, Marina Bay Sands silhouette in the
   distance). Same generation method as the logo, then center-cropped from
