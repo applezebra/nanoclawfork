@@ -15,6 +15,23 @@ from agent.registry import ResolvedProvider
 _log = get_logger("agent.runtime")
 
 
+class AllProvidersFailed(Exception):
+    """Raised by reply_with_fallback when the primary AND every fallback fails.
+
+    `attempts` carries (provider_name, model_id, exception_class_name) for each
+    attempt in order. The original exceptions are preserved on `__cause__`
+    chains for tracebacks; the public `attempts` field is intentionally
+    text-only to avoid leaking exception bodies into logs or error responses.
+    """
+
+    def __init__(self, attempts: list[tuple[str, str, str]]):
+        self.attempts = attempts
+        summary = "; ".join(f"{p}/{m}: {cls}" for p, m, cls in attempts)
+        super().__init__(
+            f"All {len(attempts)} provider(s) failed. Chain: {summary}"
+        )
+
+
 class Turn(TypedDict):
     """A single conversation turn, compatible with the L3 memory layer's dict shape."""
 
@@ -109,3 +126,57 @@ async def reply(
             exc_info=True,
         )
         raise
+
+
+async def reply_with_fallback(
+    primary: ResolvedProvider,
+    fallbacks: list[ResolvedProvider],
+    system_prompt: str,
+    history: list[Turn],
+    user_text: str,
+    chat_id: int,
+) -> str:
+    """Same shape as reply(), but cycles through a primary + fallback chain.
+
+    AC-1: when fallbacks is empty, this is a thin passthrough to reply()
+    and the empty-fallback path stays byte-for-byte identical to v0.1.3.
+
+    Otherwise: try each entry in [primary, *fallbacks]. On any exception,
+    log INFO with the failing entry, the next entry (if any) and the
+    exception CLASS NAME ONLY (no str(exc), to avoid leaking request bodies
+    or secrets), then continue. On exhaustion, raise AllProvidersFailed
+    with the per-attempt class-name summary.
+    """
+    if not fallbacks:
+        return await reply(primary, system_prompt, history, user_text, chat_id)
+
+    chain: list[ResolvedProvider] = [primary, *fallbacks]
+    attempts: list[tuple[str, str, str]] = []
+    last_exc: Exception | None = None
+
+    for idx, prov in enumerate(chain):
+        try:
+            return await reply(prov, system_prompt, history, user_text, chat_id)
+        except Exception as exc:
+            last_exc = exc
+            cls_name = type(exc).__name__
+            attempts.append((prov.provider_name, prov.model_id, cls_name))
+            if idx + 1 < len(chain):
+                nxt = chain[idx + 1]
+                _log.info(
+                    "fallback: %s/%s -> %s/%s (cause=%s)",
+                    prov.provider_name,
+                    prov.model_id,
+                    nxt.provider_name,
+                    nxt.model_id,
+                    cls_name,
+                )
+
+    summary = "; ".join(f"{p}/{m}: {cls}" for p, m, cls in attempts)
+    _log.critical("All providers in fallback chain failed: %s", summary)
+    # Chain the final provider's exception via `from` so the traceback
+    # preserves the root cause for debugging (codex-review v0.1.4 P2).
+    # The CRITICAL log line above is class-names-only for secret hygiene;
+    # the `from` chain is for stderr tracebacks where the L0 scrubber
+    # already redacts known secrets.
+    raise AllProvidersFailed(attempts) from last_exc

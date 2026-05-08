@@ -89,6 +89,7 @@ def _make_handler(
     resolved: ResolvedProvider,
     system_prompt: str,
     memory: Memory,
+    fallbacks: list[ResolvedProvider] | None = None,
 ):
     """Build the inbound-message handler closure.
 
@@ -120,9 +121,25 @@ def _make_handler(
 
             memory.append(chat_id, "user", text)
             history = memory.history(chat_id)
-            reply_text = await runtime.reply(
-                resolved, system_prompt, history, text, chat_id
-            )
+            try:
+                reply_text = await runtime.reply_with_fallback(
+                    resolved, fallbacks or [], system_prompt, history, text, chat_id
+                )
+            except runtime.AllProvidersFailed:
+                # Every configured provider failed. Send a single user-visible
+                # status line and persist nothing. The CRITICAL log inside
+                # reply_with_fallback already recorded the chain.
+                outbound = (
+                    "Having trouble reaching the LLM right now, "
+                    "please try again in a minute."
+                )
+                await message.reply_text(outbound)
+                _log.info(
+                    "reply-fallback-exhausted: chat_id=%d reply_len=%d",
+                    chat_id,
+                    len(outbound),
+                )
+                return
             # Truncate BEFORE persisting + sending so memory matches what the
             # user saw. If we appended the full LLM reply and only truncated
             # the send, the next turn would re-condition on the long text and
@@ -145,6 +162,7 @@ def run(
     config: Config,
     registry_resolver: Callable[[Config, str], ResolvedProvider],
     memory: Memory,
+    fallbacks: list[ResolvedProvider] | None = None,
 ) -> None:
     """Long-running Telegram polling loop.
 
@@ -170,14 +188,17 @@ def run(
 
     # No token in this log line. Counts and identifiers only.
     _log.info(
-        "Connector starting: provider=%s model=%s allowlist_size=%d",
+        "Connector starting: provider=%s model=%s allowlist_size=%d fallback_len=%d",
         resolved.provider_name,
         resolved.model_id,
         len(allowlist),
+        len(fallbacks or []),
     )
 
     app = ApplicationBuilder().token(token).build()
-    handler = _make_handler(allowlist, resolved, agent_spec.system_prompt, memory)
+    handler = _make_handler(
+        allowlist, resolved, agent_spec.system_prompt, memory, fallbacks
+    )
     # filters.TEXT IS the 5MB attachment-size cap mechanism for 0.1 — non-text
     # is dropped before any handler runs (eng-review A3).
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handler))

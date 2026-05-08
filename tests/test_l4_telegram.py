@@ -392,6 +392,62 @@ class TestHandlerTokenScrubbing:
                 alog._SECRETS.remove(token)
 
 
+class TestHandlerAllProvidersFailed:
+    """v0.1.4: when reply_with_fallback raises AllProvidersFailed, the handler
+    must (1) send the fixed user-visible status message, (2) NOT persist an
+    assistant turn (memory must reflect what the user saw, and the user did
+    not see a real reply), and (3) emit the connector's exhaustion INFO line."""
+
+    pytestmark = pytest.mark.anyio
+
+    async def test_all_providers_failed_replies_status_no_assistant_persist(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        from agent.runtime import AllProvidersFailed
+
+        memory = MagicMock()
+        memory.history.return_value = []
+
+        async def raises(*_args, **_kwargs):
+            raise AllProvidersFailed(
+                [
+                    ("primary", "m1", "RuntimeError"),
+                    ("fb1", "m2", "TimeoutError"),
+                ]
+            )
+
+        monkeypatch.setattr(tg.runtime, "reply_with_fallback", raises)
+
+        fallbacks = [_make_resolved(name="fb1", model="m2")]
+        handler = _make_handler(
+            {42}, _make_resolved(), "sp", memory, fallbacks=fallbacks
+        )
+        update = _make_update(chat_id=42, text="hello")
+
+        with caplog.at_level(logging.INFO, logger="agent.connectors.telegram"):
+            await handler(update, MagicMock())  # must not raise
+
+        # User turn persisted; assistant turn must NOT be persisted (the user
+        # did not receive a real reply, only a status line).
+        assert memory.append.call_count == 1
+        assert memory.append.call_args.args == (42, "user", "hello")
+
+        # The fixed user-visible status message went out exactly once.
+        update.effective_message.reply_text.assert_awaited_once_with(
+            "Having trouble reaching the LLM right now, "
+            "please try again in a minute."
+        )
+
+        # Connector emitted the exhaustion INFO line for ops visibility.
+        assert any(
+            "reply-fallback-exhausted" in r.getMessage()
+            and "chat_id=42" in r.getMessage()
+            for r in caplog.records
+        )
+
+
 class TestRunStartupLogging:
     """run() startup line emits provider/model + allowlist size only — no token."""
 

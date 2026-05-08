@@ -71,3 +71,22 @@ agents:
     # In 0.1 only "telegram" is a valid connector.
     connectors:
       - telegram
+
+# Optional: provider/model fallback chain.
+# If the active agent's primary call fails, kayaclaw tries each entry below
+# in declared order and uses the first one that returns a reply. Entries
+# share the same "<provider>/<model-id>" shape as agents.<group>.model and
+# the model must appear in that provider's allowed_models list.
+#
+# Order matters. Cost note: every fallback attempt is a billable LLM call.
+# Capped at 5 entries. The list may not contain duplicates, and may not
+# reference the same provider/model as any agent's primary (that would
+# just retry the failing call).
+#
+# Empty or omitted = no fallback (the v0.1.3 behaviour).
+#
+# fallback:
+#   # Both providers below are commented out by default in this file.
+#   # Uncomment them in the providers: section above before adding them here.
+#   - groq/llama-3.3-70b-versatile
+#   - deepinfra/meta-llama/Llama-3.3-70B-Instruct

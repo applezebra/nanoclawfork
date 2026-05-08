@@ -147,6 +147,20 @@ agents:
 
 Any other Groq-served model works the same way.
 
+### Fallback chain
+
+If the primary LLM call fails, kayaclaw can try alternates in order. Each entry uses the same `<provider>/<model-id>` shape as `agents.<group>.model`. The provider key must already exist in `providers:` and the model must be in that provider's `allowed_models`. Add a top-level `fallback:` block to `config.yaml`:
+
+```yaml
+fallback:
+  - groq/llama-3.3-70b-versatile
+  - deepinfra/meta-llama/Llama-3.3-70B-Instruct
+```
+
+Order matters; capped at 5 entries. Every attempt is a billable LLM call.
+
+When the whole chain is exhausted on a single user message, the bot replies once with `"Having trouble reaching the LLM right now, please try again in a minute."` and logs the failure summary at CRITICAL.
+
 ## Verifying the security posture
 
 kayaclaw is independently verifiable, not just claimed:
@@ -164,7 +178,7 @@ The following are deliberately out of scope for the 0.x line. The smallness is t
 - WhatsApp, Slack, Discord, Gmail connectors
 - Tool / function calling beyond a text reply (no file ops, web search, bash-in-container)
 - Scheduled jobs / cron
-- Cost-based provider routing, fallback chains, or per-message routing
+- Cost-based provider routing or per-message routing
 - VPS deployment automation
 - Streaming responses
 - Vector recall / RAG
