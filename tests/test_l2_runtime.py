@@ -315,3 +315,231 @@ class TestReply:
         assert match is None, (
             f"Found Anthropic import in agent/runtime.py: {match.group()!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Step 3 (v0.1.4) — reply_with_fallback() tests
+# ---------------------------------------------------------------------------
+
+def _named_provider(provider_name: str, model_id: str = "m") -> ResolvedProvider:
+    return ResolvedProvider(
+        provider_name=provider_name,
+        kind="openai_compatible",
+        base_url="https://api.example.com/v1",
+        api_key="k",
+        model_id=model_id,
+    )
+
+
+class _Counter:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+
+def _make_reply_stub(behaviors: dict[str, object], counter: _Counter):
+    """behaviors: provider_name -> reply text (str) or Exception instance/class to raise."""
+
+    async def fake_reply(provider, system_prompt, history, user_text, chat_id):
+        counter.calls.append(provider.provider_name)
+        outcome = behaviors[provider.provider_name]
+        if isinstance(outcome, BaseException):
+            raise outcome
+        if isinstance(outcome, type) and issubclass(outcome, BaseException):
+            raise outcome("simulated failure")
+        return outcome
+
+    return fake_reply
+
+
+class TestReplyWithFallback:
+    @pytest.mark.anyio
+    async def test_t1_primary_succeeds_no_fallback_consulted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agent import runtime as rt
+
+        counter = _Counter()
+        monkeypatch.setattr(
+            rt, "reply", _make_reply_stub({"primary": "ok"}, counter)
+        )
+        primary = _named_provider("primary")
+        fallbacks = [_named_provider("fb1"), _named_provider("fb2")]
+        result = await rt.reply_with_fallback(primary, fallbacks, "sys", [], "hi", chat_id=1)
+        assert result == "ok"
+        assert counter.calls == ["primary"]
+
+    @pytest.mark.anyio
+    async def test_t2_primary_fails_first_fallback_returns(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agent import runtime as rt
+
+        counter = _Counter()
+        monkeypatch.setattr(
+            rt,
+            "reply",
+            _make_reply_stub(
+                {"primary": RuntimeError("boom"), "fb1": "fb1-reply", "fb2": "unused"},
+                counter,
+            ),
+        )
+        primary = _named_provider("primary")
+        fallbacks = [_named_provider("fb1"), _named_provider("fb2")]
+        result = await rt.reply_with_fallback(primary, fallbacks, "sys", [], "hi", chat_id=1)
+        assert result == "fb1-reply"
+        assert counter.calls == ["primary", "fb1"]
+
+    @pytest.mark.anyio
+    async def test_t3_primary_and_first_fallback_fail_second_used(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from agent import runtime as rt
+
+        counter = _Counter()
+        monkeypatch.setattr(
+            rt,
+            "reply",
+            _make_reply_stub(
+                {
+                    "primary": RuntimeError("p"),
+                    "fb1": ValueError("v"),
+                    "fb2": "fb2-reply",
+                },
+                counter,
+            ),
+        )
+        primary = _named_provider("primary")
+        fallbacks = [_named_provider("fb1"), _named_provider("fb2")]
+        result = await rt.reply_with_fallback(primary, fallbacks, "sys", [], "hi", chat_id=1)
+        assert result == "fb2-reply"
+        assert counter.calls == ["primary", "fb1", "fb2"]
+
+    @pytest.mark.anyio
+    async def test_t4_all_fail_raises_all_providers_failed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        from agent import runtime as rt
+
+        counter = _Counter()
+        monkeypatch.setattr(
+            rt,
+            "reply",
+            _make_reply_stub(
+                {
+                    "primary": RuntimeError("p"),
+                    "fb1": ValueError("v"),
+                    "fb2": KeyError("k"),
+                },
+                counter,
+            ),
+        )
+        primary = _named_provider("primary", "m1")
+        fallbacks = [_named_provider("fb1", "m2"), _named_provider("fb2", "m3")]
+
+        with caplog.at_level(logging.CRITICAL, logger="agent.runtime"):
+            with pytest.raises(rt.AllProvidersFailed) as exc_info:
+                await rt.reply_with_fallback(primary, fallbacks, "sys", [], "hi", chat_id=1)
+
+        assert counter.calls == ["primary", "fb1", "fb2"]
+        attempts = exc_info.value.attempts
+        assert attempts == [
+            ("primary", "m1", "RuntimeError"),
+            ("fb1", "m2", "ValueError"),
+            ("fb2", "m3", "KeyError"),
+        ]
+        critical_msgs = [
+            r.getMessage() for r in caplog.records if r.levelno == logging.CRITICAL
+        ]
+        assert any("primary/m1: RuntimeError" in m for m in critical_msgs)
+        assert any("fb2/m3: KeyError" in m for m in critical_msgs)
+
+    @pytest.mark.anyio
+    async def test_t5_logs_do_not_leak_exception_str(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        from agent import runtime as rt
+
+        counter = _Counter()
+        secret_blob = "SUPER-SECRET-REQUEST-BODY-12345"
+        monkeypatch.setattr(
+            rt,
+            "reply",
+            _make_reply_stub(
+                {
+                    "primary": RuntimeError(secret_blob),
+                    "fb1": ValueError(secret_blob),
+                },
+                counter,
+            ),
+        )
+        primary = _named_provider("primary")
+        fallbacks = [_named_provider("fb1")]
+
+        with caplog.at_level(logging.INFO, logger="agent.runtime"):
+            with pytest.raises(rt.AllProvidersFailed):
+                await rt.reply_with_fallback(primary, fallbacks, "sys", [], "hi", chat_id=1)
+
+        for record in caplog.records:
+            # Skip the underlying reply()'s exc_info traceback (it's the SDK
+            # path's responsibility, scrubbed by the L0 logger). We assert
+            # the wrapper's own log lines (INFO fallback + CRITICAL summary)
+            # contain only class names, never str(exc).
+            if record.name != "agent.runtime":
+                continue
+            if record.exc_info:
+                continue
+            assert secret_blob not in record.getMessage(), (
+                f"Exception str leaked into log: {record.getMessage()!r}"
+            )
+
+    @pytest.mark.anyio
+    async def test_t6_empty_fallback_passes_through_exception(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """AC-1: empty fallback list → reply()'s exception bubbles, no AllProvidersFailed."""
+        from agent import runtime as rt
+
+        counter = _Counter()
+        monkeypatch.setattr(
+            rt,
+            "reply",
+            _make_reply_stub({"primary": RuntimeError("boom")}, counter),
+        )
+        primary = _named_provider("primary")
+        with pytest.raises(RuntimeError, match="boom"):
+            await rt.reply_with_fallback(primary, [], "sys", [], "hi", chat_id=1)
+        assert counter.calls == ["primary"]
+
+    @pytest.mark.anyio
+    async def test_t6b_empty_fallback_happy_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """AC-1: empty fallback list + primary success → returns primary's reply."""
+        from agent import runtime as rt
+
+        counter = _Counter()
+        monkeypatch.setattr(
+            rt, "reply", _make_reply_stub({"primary": "ok"}, counter)
+        )
+        primary = _named_provider("primary")
+        result = await rt.reply_with_fallback(primary, [], "sys", [], "hi", chat_id=1)
+        assert result == "ok"
+        assert counter.calls == ["primary"]
+
+    def test_t7_all_providers_failed_attempts_shape(self) -> None:
+        from agent.runtime import AllProvidersFailed
+
+        attempts = [
+            ("openrouter", "model-a", "RuntimeError"),
+            ("groq", "model-b", "TimeoutError"),
+        ]
+        exc = AllProvidersFailed(attempts)
+        assert exc.attempts == attempts
+        msg = str(exc)
+        assert "2 provider(s) failed" in msg
+        assert "openrouter/model-a: RuntimeError" in msg
+        assert "groq/model-b: TimeoutError" in msg

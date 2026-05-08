@@ -266,6 +266,78 @@ def test_resolve_anthropic_with_key_still_raises_not_implemented(monkeypatch):
     assert "0.1" in err
 
 
+# ---------------------------------------------------------------------------
+# v0.1.4 — fallback config validation
+# ---------------------------------------------------------------------------
+
+
+def test_fallback_missing_loads_clean():
+    """T-cfg-1: missing fallback key → defaults to []."""
+    raw = _make_raw()
+    config = _load_from_dict(raw)
+    assert config.fallback == []
+
+
+def test_fallback_empty_list_loads_clean():
+    """T-cfg-1: explicit empty list → []."""
+    raw = _make_raw()
+    raw["fallback"] = []
+    config = _load_from_dict(raw)
+    assert config.fallback == []
+
+
+def test_fallback_non_list_raises_config_error():
+    """T-cfg-2: fallback as a string (not a list) → ConfigError."""
+    raw = _make_raw()
+    raw["fallback"] = "p/some-model"
+    with pytest.raises(ConfigError):
+        _load_from_dict(raw)
+
+
+def test_fallback_entry_without_slash_raises_config_error():
+    """T-cfg-2b: fallback entry missing '/' → ConfigError."""
+    raw = _make_raw()
+    raw["fallback"] = ["nosashstring"]
+    with pytest.raises(ConfigError):
+        _load_from_dict(raw)
+
+
+def test_fallback_entry_equals_agent_model_raises_config_error():
+    """T-cfg-5: fallback entry duplicates an agent's primary model → ConfigError."""
+    raw = _make_raw()
+    raw["fallback"] = ["example/some-model"]  # matches _VALID_AGENT.model
+    with pytest.raises(ConfigError) as exc_info:
+        _load_from_dict(raw)
+    assert "example/some-model" in str(exc_info.value)
+
+
+def test_fallback_internal_duplicates_raise_config_error():
+    """T-cfg-6: duplicates within fallback list → ConfigError naming the dupe."""
+    raw = _make_raw()
+    raw["fallback"] = ["groq/x", "groq/x"]
+    with pytest.raises(ConfigError) as exc_info:
+        _load_from_dict(raw)
+    assert "groq/x" in str(exc_info.value)
+
+
+def test_fallback_length_cap_exceeded_raises_config_error():
+    """T-cfg-7: fallback list of 6 entries → ConfigError mentioning the cap."""
+    raw = _make_raw()
+    raw["fallback"] = [f"p{i}/m{i}" for i in range(6)]
+    with pytest.raises(ConfigError) as exc_info:
+        _load_from_dict(raw)
+    err = str(exc_info.value)
+    assert "5" in err or "cap" in err.lower()
+
+
+def test_fallback_under_cap_loads_cleanly():
+    """5 distinct entries (the cap) loads cleanly."""
+    raw = _make_raw()
+    raw["fallback"] = [f"p{i}/m{i}" for i in range(5)]
+    config = _load_from_dict(raw)
+    assert len(config.fallback) == 5
+
+
 def test_resolve_config_error_messages_are_nonempty(monkeypatch):
     """ConfigError messages are non-empty human-readable strings in all failure cases."""
     config = load_config(_EXAMPLE_CONFIG)

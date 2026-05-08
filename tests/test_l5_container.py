@@ -184,8 +184,10 @@ class TestMainSyncContract:
         assert rc == 0
         connector_mock.assert_called_once()
         args = connector_mock.call_args.args
-        assert len(args) == 3, f"expected (config, resolve, memory); got {args!r}"
-        # arg[0] is the loaded Config; arg[1] is the resolve callable; arg[2] is Memory
+        assert len(args) == 4, (
+            f"expected (config, resolve, memory, fallbacks); got {args!r}"
+        )
+        # arg[0]: Config; arg[1]: resolve callable; arg[2]: Memory; arg[3]: fallback list
         from agent.config import Config
         from agent.memory import Memory
         from agent.registry import resolve as resolve_fn
@@ -193,6 +195,7 @@ class TestMainSyncContract:
         assert isinstance(args[0], Config)
         assert args[1] is resolve_fn
         assert isinstance(args[2], Memory)
+        assert args[3] == []  # default fixture has no fallback configured
 
 
 class TestMainKeyboardInterrupt:

@@ -57,13 +57,18 @@ def main(config_path: Path = _DEFAULT_CONFIG_PATH) -> int:
                 )
             register_secret(api_key)
         resolved = resolve(config, agent_spec.model)
+        # Resolve the optional fallback chain. resolve() raises ConfigError
+        # for unknown provider, disallowed model, or unsupported kind, so
+        # the surrounding try/except already turns those into a CRITICAL
+        # log + exit 1 with a clear message.
+        resolved_fallbacks = [resolve(config, ref) for ref in config.fallback]
     except (ConfigError, NotImplementedError) as e:
         log.critical("Startup failed: %s", e)
         return 1
 
     log.info(
-        "Agent starting: provider=%s model=%s connector=telegram",
-        resolved.provider_name, resolved.model_id,
+        "Agent starting: provider=%s model=%s connector=telegram fallback_len=%d",
+        resolved.provider_name, resolved.model_id, len(resolved_fallbacks),
     )
     try:
         memory = Memory(default_db_path())
@@ -72,7 +77,7 @@ def main(config_path: Path = _DEFAULT_CONFIG_PATH) -> int:
         return 1
 
     try:
-        connector_run(config, resolve, memory)
+        connector_run(config, resolve, memory, resolved_fallbacks)
     except (KeyboardInterrupt, SystemExit):
         log.info("Agent stopped")
     return 0

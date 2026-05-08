@@ -60,11 +60,56 @@ class AgentGroupSpec(BaseModel):
         return v
 
 
+FALLBACK_MAX_LENGTH = 5
+
+
 class Config(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     providers: dict[str, ProviderSpec]
     agents: dict[str, AgentGroupSpec]
+    # Optional per-deployment fallback chain. Each entry is a "<provider>/<model-id>"
+    # reference tried in declared order if the active agent's primary call fails.
+    # Empty / missing = no fallback (v0.1.3 behavior).
+    fallback: list[str] = []
+
+    @field_validator("fallback")
+    @classmethod
+    def _fallback_entries_have_slash(cls, v: list[str]) -> list[str]:
+        for entry in v:
+            parts = entry.split("/", 1)
+            if len(parts) != 2 or not parts[0] or not parts[1]:
+                raise ValueError(
+                    f'fallback entry {entry!r} must be in "<provider>/<model-id>" format'
+                )
+        return v
+
+    @model_validator(mode="after")
+    def _fallback_invariants(self) -> "Config":
+        if len(self.fallback) > FALLBACK_MAX_LENGTH:
+            raise ValueError(
+                f"fallback list length {len(self.fallback)} exceeds the cap "
+                f"of {FALLBACK_MAX_LENGTH}; if you need a longer chain, "
+                f"reconsider whether the providers are right"
+            )
+        seen: set[str] = set()
+        for entry in self.fallback:
+            if entry in seen:
+                raise ValueError(
+                    f"fallback list contains duplicate entry {entry!r}; "
+                    f"each provider/model reference must appear at most once"
+                )
+            seen.add(entry)
+        agent_models = {spec.model for spec in self.agents.values()}
+        cycle = seen & agent_models
+        if cycle:
+            offending = sorted(cycle)[0]
+            raise ValueError(
+                f"fallback entry {offending!r} duplicates an agent's primary model; "
+                f"a fallback to the same provider/model retries the failing call "
+                f"and wastes cost"
+            )
+        return self
 
 
 def load_config(path: Path) -> Config:
