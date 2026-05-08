@@ -2,6 +2,11 @@
 
 All notable changes to kayaclaw are documented in this file. Format follows Keep a Changelog (https://keepachangelog.com/en/1.1.0/). This project adheres to Semantic Versioning (https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-05-08
+
+### Added
+- Optional `fallback:` config field. List up to 5 `<provider>/<model-id>` alternates tried in order when the primary call fails. Duplicates and primary-model cycles are rejected at config load. On full exhaustion, the bot replies with a user-visible status message and the failure summary is logged. Empty or omitted keeps prior behaviour.
+
 ## [0.1.3] - 2026-05-07
 
 ### Added
