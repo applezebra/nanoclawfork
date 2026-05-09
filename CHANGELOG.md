@@ -2,6 +2,11 @@
 
 All notable changes to kayaclaw are documented in this file. Format follows Keep a Changelog (https://keepachangelog.com/en/1.1.0/). This project adheres to Semantic Versioning (https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-05-09
+
+### Added
+- kayaclaw's CI now blocks merges if a known high-severity security hole is found in any library, container layer, or Docker setting kayaclaw uses. The scan runs on every change and once a week against the latest CVE database, so a release tag means the build was clean against public CVEs at the time it shipped.
+
 ## [0.1.4] - 2026-05-08
 
 ### Added
