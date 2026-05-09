@@ -165,9 +165,10 @@ When the whole chain is exhausted on a single user message, the bot replies once
 
 kayaclaw is independently verifiable, not just claimed:
 
-- **Container hardening checklist:** [`docs/discovery/container/SECURITY.md`](docs/discovery/container/SECURITY.md). 16 controls implemented, 4 deferred to stage 2. Every control has a runnable `docker inspect` or `docker run` verification command. Anyone can clone the repo and re-prove every claim.
+- **Container hardening checklist:** [`docs/discovery/container/SECURITY.md`](docs/discovery/container/SECURITY.md). 17 controls implemented, 3 deferred to stage 2. Every control has a runnable `docker inspect` or `docker run` verification command. Anyone can clone the repo and re-prove every claim.
 - **Vulnerability disclosure policy:** [`SECURITY.md`](SECURITY.md). How to report a security issue privately via GitHub Security Advisories or `security@kayaclaw.ai`.
 - **Live container inspection:** `docker inspect kayaclaw-agent-1 -f '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}} {{.HostConfig.SecurityOpt}}'` after `docker compose up` returns `true [ALL] [no-new-privileges:true]`.
+- **CVE scan in CI:** [![CVE scan](https://github.com/kayaclaw/kayaclaw/actions/workflows/cve-scan.yml/badge.svg)](https://github.com/kayaclaw/kayaclaw/actions/workflows/cve-scan.yml). Every PR and the weekly cron run Trivy against the dependency tree, container image, and Dockerfile. CRITICAL and HIGH findings block merge.
 
 ## Where 1.x conversations start
 

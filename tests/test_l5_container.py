@@ -301,10 +301,11 @@ class TestSecurityDocCompleteness:
             )
         deferrals_section = spec.split("## Known deferrals", 1)[1]
 
-        deferred = [8, 9, 19, 20]
+        # Control 19 (CI CVE scan) shipped in v0.1.5 and is no longer deferred.
+        deferred = [8, 9, 20]
         missing = [n for n in deferred if f"| {n} |" not in deferrals_section]
         assert not missing, (
             f"Known deferrals section is missing controls: {missing}. "
-            f"All four stage-2 deferrals (8, 9, 19, 20) must be listed with "
+            f"All three stage-2 deferrals (8, 9, 20) must be listed with "
             f"a reason and stage-2 plan."
         )
