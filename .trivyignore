@@ -1,0 +1,22 @@
+# .trivyignore: accepted-risk CVE allowlist for kayaclaw.
+#
+# This file ships empty on purpose. Any CVE listed here MUST have a comment
+# block above it documenting:
+#
+#   1. Why the CVE was accepted (no upstream fix yet, false positive in our
+#      context, transitive dep we cannot drop, etc.)
+#   2. The date it was added (YYYY-MM-DD)
+#   3. A review-by date (YYYY-MM-DD) when the maintainer must re-evaluate
+#
+# Format for each entry:
+#
+#   # CVE-YYYY-NNNNN | Reason: <one-line justification>
+#   # Added: YYYY-MM-DD | Review by: YYYY-MM-DD
+#   CVE-YYYY-NNNNN
+#
+# The audit trail is git history: who added the entry, when, in which PR,
+# and the reason. SECURITY.md links to this file as the canonical record of
+# accepted-risk CVEs.
+#
+# Empty file = no CVEs are accepted. The CI gate blocks any HIGH or CRITICAL
+# finding outright.
