@@ -3,8 +3,17 @@
 # start by /usr/local/bin/generate-config.sh. Edit this template, not
 # the rendered file. The __FILTER_FILE__ token is replaced at render time.
 
-User proxy
-Group proxy
+# No User/Group directives: the container is started with `USER proxy`
+# (UID 10001) by the Dockerfile, and `cap_drop: [ALL]` in compose strips
+# CAP_SETUID/CAP_SETGID. Letting tinyproxy try to setuid/setgid from
+# already-being-proxy succeeds on some builds and fails on others; relying
+# on the container runtime to set the user is the portable choice.
+
+# PidFile must point at a writable path. The compose file mounts a tmpfs
+# at /etc/tinyproxy (mode=0700, uid=10001), so /etc/tinyproxy is the only
+# writable location for this user. The default path /run/tinyproxy/...
+# does not exist on the read-only root filesystem.
+PidFile "/etc/tinyproxy/tinyproxy.pid"
 
 # Listen on all interfaces inside the container; the only network reachable
 # is agent-net, which is `internal: true`, so this is bot-only by topology.
@@ -23,11 +32,13 @@ ConnectPort 443
 ConnectPort 80
 
 # Hostname allowlist. FilterDefaultDeny Yes = block everything not matched
-# by an entry in __FILTER_FILE__. FilterExtended Yes = treat each filter
-# entry as an extended POSIX regex. generate-config.sh renders entries as
-# anchored regexes (e.g. ^openrouter\.ai$, (^|\.)telegram\.org$).
+# by an entry in __FILTER_FILE__. FilterType ere = treat each filter entry
+# as an extended POSIX regex (the modern replacement for the deprecated
+# FilterExtended Yes; alpine ships tinyproxy 1.11.2 which warns and may
+# silently drop the deprecated form). generate-config.sh renders entries
+# as anchored regexes (e.g. ^openrouter\.ai$, (^|\.)telegram\.org$).
 Filter "__FILTER_FILE__"
 FilterDefaultDeny Yes
-FilterExtended Yes
+FilterType ere
 FilterCaseSensitive No
 FilterURLs No
