@@ -2,6 +2,11 @@
 
 All notable changes to kayaclaw are documented in this file. Format follows Keep a Changelog (https://keepachangelog.com/en/1.1.0/). This project adheres to Semantic Versioning (https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-05-10
+
+### Added
+- kayaclaw's container now blocks outbound network requests to anywhere except your Telegram bot's API and your configured LLM provider. If something tries to reach an unauthorized destination (a compromised dependency, a malicious LLM response, anything), the request is denied at the network level. The allowlist is generated automatically from your config.yaml, so existing v0.1.5 configurations work unchanged. When future versions add tools that legitimately need other destinations (web browsing, custom HTTP), the allowlist will expand for those tools. A CI test on every PR proves the lockdown works by attempting to reach an unauthorized host and asserting the connection is denied.
+
 ## [0.1.5] - 2026-05-09
 
 ### Added

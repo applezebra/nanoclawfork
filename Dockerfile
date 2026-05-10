@@ -36,7 +36,14 @@ RUN rm -rf /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.12 \
 # `python -m ensurepip --upgrade` restores pip in one command and silently
 # voids control 17 (codex-review L5-Step2 P1).
 COPY container/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod 0555 /usr/local/bin/entrypoint.sh \
+# v0.1.6: extract-allowlist.sh runs in the init service (compose) to
+# generate the egress proxy allowlist from config.yaml at compose-up.
+# Baked into the bot image (not bind-mounted) so the init service is image-only.
+# Depends on python3 + PyYAML being present in this image (PyYAML is in
+# pyproject.toml dependencies, python3 comes from the python:3.12-slim base).
+# If a future image diet drops either, the init service breaks.
+COPY container/extract-allowlist.sh /usr/local/bin/extract-allowlist.sh
+RUN chmod 0555 /usr/local/bin/entrypoint.sh /usr/local/bin/extract-allowlist.sh \
  && mkdir -p /data /config \
  && chown agent:agent /data
 # HOME=/tmp redirects ~/.cache writes onto the tmpfs mount (compose Step 3).

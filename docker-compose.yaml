@@ -1,17 +1,73 @@
-# kayaclaw 0.1 — single-service compose. The compose file IS the security
+# kayaclaw 0.1.6: three-service compose with init (one-shot), proxy (egress
+# allowlist sidecar), and agent (the bot). The compose file IS the security
 # enforcement point: read-only root FS, dropped capabilities, no-new-privileges,
-# explicit mount allowlist, resource limits. All 16 required SECURITY.md
-# controls for 0.1 are implemented here or in the Dockerfile.
+# explicit mount allowlist, resource limits, AND egress allowlist via the
+# proxy sidecar (SECURITY.md control 10b).
+
+# YAML anchors keep the security baseline visually one thing across all three
+# services and prevent drift when adding new services later.
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
+  # init: one-shot. Walks every configured provider in config.yaml and writes
+  # the union of hostnames to /run/shared/egress-allowlist.env on the named
+  # volume. Both proxy and agent depend on this completing successfully.
+  init:
+    <<: *hardened
+    image: kayaclaw:0.1                # reuses the bot image (Python + PyYAML baked in)
+    user: "0:0"                        # runs as root so it can write the named volume cleanly
+    entrypoint: ["/bin/sh", "/usr/local/bin/extract-allowlist.sh"]
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - egress-allowlist:/run/shared
+    networks:
+      - agent-net
+    restart: "no"                      # critical: one-shot, must NOT restart on success
+
+  # proxy: tinyproxy forward proxy. Sits on BOTH agent-net (so the bot can
+  # reach it) AND egress-net (the only network with external access). Bot's
+  # HTTPS_PROXY env routes all outbound traffic through here; tinyproxy
+  # filters by hostname allowlist (rendered from /run/shared at start).
+  proxy:
+    <<: *hardened
+    build: ./tinyproxy
+    image: kayaclaw-proxy:0.1
+    restart: unless-stopped
+    cpus: 0.25
+    mem_limit: 64m
+    pids_limit: 32
+    networks:
+      - agent-net
+      - egress-net
+    volumes:
+      - egress-allowlist:/run/shared:ro    # read-only mount: proxy never writes here
+    tmpfs:
+      # Mounted at /etc/tinyproxy (where generate-config.sh writes the
+      # rendered conf + filter file). NOT at /run, which would mask the
+      # /run/shared volume mount above. mode=0700 + uid=10001 ensures only
+      # the proxy user can read/write (defense-in-depth; the container is
+      # already non-root and read-only).
+      - /etc/tinyproxy:mode=0700,uid=10001,gid=10001,noexec,nosuid,nodev,size=4m
+    depends_on:
+      init:
+        condition: service_completed_successfully
+    logging: *logging
+
   agent:
+    <<: *hardened                      # read_only + cap_drop + no-new-privileges (controls 2, 6, 7)
     build: .
     image: kayaclaw:0.1
     restart: unless-stopped
-    read_only: true                    # SECURITY.md control 2
-    cap_drop: [ALL]                    # SECURITY.md control 6
-    security_opt:
-      - no-new-privileges:true         # SECURITY.md control 7
     environment:
       # Names only for SECRETS — values come from .env (gitignored).
       # SECURITY.md control 14. See .env.example for the required keys.
@@ -24,42 +80,39 @@ services:
       - OPENROUTER_API_KEY
       - DEEPINFRA_API_KEY
       - GROQ_API_KEY
-      # Config knobs (not secrets) — ${VAR:-default} lets .env override
-      # while preserving a sensible default. codex-review L5-Step3 P1: a
-      # bare `KEY=value` form would block .env overrides entirely.
+      # Config knobs (not secrets). ${VAR:-default} lets .env override.
       - AGENT_DATA_DIR=${AGENT_DATA_DIR:-/data}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      # v0.1.6: route all bot HTTP(S) egress through the proxy sidecar.
+      # httpx + python-telegram-bot + pydantic-ai's OpenAIProvider all
+      # honor these env vars by default. SECURITY.md control 10b.
+      - HTTPS_PROXY=http://proxy:8888
+      - HTTP_PROXY=http://proxy:8888
     volumes:
       - agent-data:/data                                # control 3 (writable scratch via named volume)
       - ./config.yaml:/config/config.yaml:ro            # control 15 (config read-only)
     tmpfs:
-      # noexec,nosuid,nodev = defense-in-depth (audit P3-2): even with
-      # cap_drop ALL + no-new-privileges already preventing setuid escalation,
-      # adding these flags blocks a future bug or LLM-tool that downloads a
-      # binary into /tmp and tries to exec it. size=64m caps memory-DoS via
-      # /tmp fill (default tmpfs size = 50% of host RAM).
       - /tmp:mode=1777,noexec,nosuid,nodev,size=64m
     networks:
-      - agent-net                      # control 11 (no host net) — bridge confines, NOT egress allowlist (see SECURITY.md control 10b)
-    # Resource limits — TOP-LEVEL keys, NOT under `deploy.resources.limits`.
-    # `deploy.*` is Swarm-only and silently ignored by `docker compose up`,
-    # which would have left limits as unlimited. codex-review L5-Step3 P1.
+      - agent-net                      # control 11 (no host net); agent-net is internal: true (control 10b)
     cpus: 1.0                          # control 13
     mem_limit: 512m
     pids_limit: 100
-    # Log rotation (audit P2-5): without this, restart: unless-stopped on a
-    # bad config crash-loops and fills /var/lib/docker/containers/*/json.log
-    # in seconds on a small VPS (Docker default backoff doubles 100ms→1m,
-    # so the early window is high-volume). Cap each container at 30MB total.
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      proxy:
+        condition: service_healthy
+    logging: *logging
 
 networks:
   agent-net:
     driver: bridge
+    internal: true                     # v0.1.6: bot has no direct external route (SECURITY.md control 10b)
+  egress-net:
+    driver: bridge                     # only proxy sits here; has external access for forwarded requests
 
 volumes:
   agent-data:                          # named volume survives `docker compose down` (FR-ME2)
+  egress-allowlist:                    # v0.1.6: shared between init (writer) and proxy (reader)
+    driver: local

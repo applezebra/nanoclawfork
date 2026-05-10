@@ -1,0 +1,33 @@
+# tinyproxy.conf.template — egress allowlist proxy for kayaclaw.
+# This file is rendered into /etc/tinyproxy/tinyproxy.conf at container
+# start by /usr/local/bin/generate-config.sh. Edit this template, not
+# the rendered file. The __FILTER_FILE__ token is replaced at render time.
+
+User proxy
+Group proxy
+
+# Listen on all interfaces inside the container; the only network reachable
+# is agent-net, which is `internal: true`, so this is bot-only by topology.
+Port 8888
+Listen 0.0.0.0
+
+# Timeouts kept conservative; the bot's own httpx timeouts are the source
+# of truth for end-to-end timing.
+Timeout 60
+DefaultErrorFile "/dev/null"
+LogLevel Notice
+
+# CONNECT must be allowed for HTTPS tunneling. Without these the bot's
+# https:// requests would all 400 at the proxy.
+ConnectPort 443
+ConnectPort 80
+
+# Hostname allowlist. FilterDefaultDeny Yes = block everything not matched
+# by an entry in __FILTER_FILE__. FilterExtended Yes = treat each filter
+# entry as an extended POSIX regex. generate-config.sh renders entries as
+# anchored regexes (e.g. ^openrouter\.ai$, (^|\.)telegram\.org$).
+Filter "__FILTER_FILE__"
+FilterDefaultDeny Yes
+FilterExtended Yes
+FilterCaseSensitive No
+FilterURLs No

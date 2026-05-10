@@ -8,7 +8,7 @@ A personal AI agent that runs in a hardened Docker container. Telegram in front,
 2. **DeepInfra provider** end-to-end via OpenAI-compatible API. Default model: Llama 3.3 70B Instruct.
 3. **PydanticAI runtime** with model-agnostic tool calling. Bring your own LLM: most major providers today speak a common HTTP format, and kayaclaw works with all of them (DeepInfra, OpenRouter, Groq, Together, your self-hosted vLLM). One config line, different model.
 4. **SQLite memory** on a named Docker volume, per-chat history, survives container restart.
-5. **Hardened container**: 16 of 20 controls in `docs/discovery/container/SECURITY.md` verified (the 4 deferred are explicitly tracked).
+5. **Hardened container**: 18 of 21 controls in `docs/discovery/container/SECURITY.md` verified (3 deferred are explicitly tracked).
 6. **Local Docker** deploy. `docker compose up` is the deploy command.
 7. **Provider registry** loaded from `config.yaml`. DeepInfra configured. Schema supports adding more providers without code changes.
 8. **Brand-decoupled code**: project name lives in exactly two source files (`pyproject.toml`, `agent/__about__.py`).
@@ -165,10 +165,11 @@ When the whole chain is exhausted on a single user message, the bot replies once
 
 kayaclaw is independently verifiable, not just claimed:
 
-- **Container hardening checklist:** [`docs/discovery/container/SECURITY.md`](docs/discovery/container/SECURITY.md). 17 controls implemented, 3 deferred to stage 2. Every control has a runnable `docker inspect` or `docker run` verification command. Anyone can clone the repo and re-prove every claim.
+- **Container hardening checklist:** [`docs/discovery/container/SECURITY.md`](docs/discovery/container/SECURITY.md). 18 controls implemented, 3 deferred to stage 2. Every control has a runnable `docker inspect` or `docker run` verification command. Anyone can clone the repo and re-prove every claim.
 - **Vulnerability disclosure policy:** [`SECURITY.md`](SECURITY.md). How to report a security issue privately via GitHub Security Advisories or `security@kayaclaw.ai`.
 - **Live container inspection:** `docker inspect kayaclaw-agent-1 -f '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}} {{.HostConfig.SecurityOpt}}'` after `docker compose up` returns `true [ALL] [no-new-privileges:true]`.
 - **CVE scan in CI:** [![CVE scan](https://github.com/kayaclaw/kayaclaw/actions/workflows/cve-scan.yml/badge.svg)](https://github.com/kayaclaw/kayaclaw/actions/workflows/cve-scan.yml). Every PR and the weekly cron run Trivy against the dependency tree, container image, and Dockerfile. CRITICAL and HIGH findings block merge.
+- **Egress allowlist + pen-test:** [![egress allowlist test](https://github.com/kayaclaw/kayaclaw/actions/workflows/egress-test.yml/badge.svg)](https://github.com/kayaclaw/kayaclaw/actions/workflows/egress-test.yml). The bot container can only reach Telegram and your configured LLM provider. Every other destination is blocked at the network layer. Every PR runs an automated egress pen-test: it attempts to reach an unauthorized host and asserts the connection is denied.
 
 ## Where 1.x conversations start
 
