@@ -19,23 +19,10 @@ PidFile "/etc/tinyproxy/tinyproxy.pid"
 Port 8888
 Listen 0.0.0.0
 
-# Prefork worker pool. tinyproxy 1.11 silently exits if these are missing
-# (no compiled-in defaults for the spare-server bounds). Numbers tuned for
-# a single-bot workload: a small pool is plenty, the bot is the only client.
-StartServers 2
-MinSpareServers 1
-MaxSpareServers 4
-MaxClients 32
-MaxRequestsPerChild 0
-
 # Timeouts kept conservative; the bot's own httpx timeouts are the source
 # of truth for end-to-end timing.
 Timeout 60
-
-# Log level Info during initial rollout so the master process logs the
-# "listening on" line at startup, which is what the healthcheck races
-# against. Drop to Notice once the deployment is stable.
-LogLevel Info
+LogLevel Notice
 
 # CONNECT must be allowed for HTTPS tunneling. Without these the bot's
 # https:// requests would all 400 at the proxy.

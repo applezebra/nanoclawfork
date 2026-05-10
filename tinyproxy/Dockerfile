@@ -7,7 +7,10 @@ FROM alpine:3.20
 
 # tinyproxy from the Alpine community repo. ca-certificates are needed
 # for the proxy to validate upstream TLS when forwarding HTTPS CONNECT.
-RUN apk add --no-cache tinyproxy ca-certificates
+# netcat-openbsd is for the healthcheck — alpine's busybox `nc` does not
+# support `-z` (port-probe mode), and a healthcheck that always exits
+# non-zero is worse than no healthcheck at all.
+RUN apk add --no-cache tinyproxy ca-certificates netcat-openbsd
 
 # Run as a dedicated non-root user (SECURITY.md discipline mirrors the
 # bot's UID 10001 pattern). tinyproxy needs write access to its config
