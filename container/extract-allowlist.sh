@@ -1,10 +1,9 @@
 #!/bin/sh
 # extract-allowlist.sh: one-shot init that walks every configured provider
-# in config.yaml (including v0.1.4 fallback chain entries) and writes the
-# union of their hostnames to a shared volume that the proxy mounts read-only.
-# Runs as root inside the init service so it can write + chown the named
-# volume cleanly. Fail-closed: empty / unparseable config -> exit 1, init
-# service fails, bot and proxy do not start (compose `service_completed_successfully`).
+# in config.yaml and writes the union of hostnames to a shared volume that
+# the proxy mounts read-only. Runs as root inside the init service so it
+# can write the named volume cleanly. Fail-closed: empty / unparseable
+# config -> exit 1, init service fails, bot and proxy do not start.
 set -eu
 
 OUT_DIR=/run/shared
@@ -20,8 +19,7 @@ try:
     with open('/config/config.yaml', 'r', encoding='utf-8') as f:
         cfg = yaml.safe_load(f)
 except Exception as e:
-    print(f"extract-allowlist: cannot parse config.yaml: {e}", file=sys.stderr)
-    sys.exit(1)
+    sys.exit(f"extract-allowlist: cannot parse config.yaml: {e}")
 
 hosts = set()
 for name, p in (cfg.get('providers') or {}).items():
@@ -36,12 +34,7 @@ for name, p in (cfg.get('providers') or {}).items():
         hosts.add('api.anthropic.com')
 
 if not hosts:
-    print(
-        "extract-allowlist: no provider base_url could be extracted; "
-        "egress allowlist would be empty",
-        file=sys.stderr,
-    )
-    sys.exit(1)
+    sys.exit("extract-allowlist: no provider base_url found")
 
 print(' '.join(sorted(hosts)))
 PY
@@ -52,4 +45,3 @@ printf 'LLM_PROVIDER_HOSTS=%s\n' "$HOSTS" > "$OUT_FILE"
 chmod 644 "$OUT_FILE"
 
 printf 'extract-allowlist: resolved LLM provider hosts: %s\n' "$HOSTS"
-printf 'extract-allowlist: (the proxy also allowlists telegram.org and subdomains, hardcoded in tinyproxy/generate-config.sh)\n'

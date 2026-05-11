@@ -80,32 +80,18 @@ jobs:
 
       - name: Build and start the stack
         run: |
-          # The egress test only needs the bot CONTAINER to be reachable
-          # via docker exec (so we can run python3 + httpx probes inside
-          # its network namespace). The bot CODE itself does not need to
-          # run for this test — and would in fact crash-loop because the
-          # fake TELEGRAM_BOT_TOKEN above won't authenticate, triggering
-          # the production `restart: unless-stopped` policy and racing
-          # docker exec into "container is restarting" failures.
-          #
-          # Override the agent's entrypoint to `tail -f /dev/null` and
-          # disable restart so the container sits idle, ready for probes.
-          # The init + proxy services still run their real entrypoints.
-          # Override is inline (compose -f -) so no test-only file ships
-          # in the repo and the production compose file stays authoritative.
+          # Fake TELEGRAM_BOT_TOKEN would crash-loop the agent under the
+          # production `restart: unless-stopped` policy; idle it so docker
+          # exec can reach the bot container's network namespace. init and
+          # proxy still run their real entrypoints.
           cat > /tmp/agent-idle.yaml <<'OVERRIDE'
           services:
             agent:
               entrypoint: ["tail", "-f", "/dev/null"]
               restart: "no"
           OVERRIDE
-          # `--wait` blocks until init exits 0 (one-shot) and proxy goes
-          # healthy. With the override above the agent container also
-          # comes up cleanly under `--wait` because tail won't exit.
           docker compose -p kayaclaw -f docker-compose.yaml -f /tmp/agent-idle.yaml up -d --build --wait --wait-timeout 120
-          # Print container state so failures are diagnosable in CI logs.
           docker compose -p kayaclaw ps
-          # Surface init's resolved allowlist for the audit trail.
           docker compose -p kayaclaw logs init
 
       - name: Run egress test suite

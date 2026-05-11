@@ -1,5 +1,5 @@
 #!/bin/sh
-# generate-config.sh — render tinyproxy.conf + filter file from the env
+# generate-config.sh: render tinyproxy.conf + filter file from the env
 # file written by the init service, then exec tinyproxy. POSIX sh only.
 #
 # Under Option B the init service has already written the env file before
@@ -37,8 +37,7 @@ printf 'generate-config: resolved allowlist:\n' >&2
 sed 's/^/  /' "$FILTER_FILE" >&2
 
 # Render the conf template by substituting the filter file path. Template
-# lives under /usr/local/share so the /etc/tinyproxy tmpfs mount does not
-# hide it (codex-review v0.1.6 P1).
+# lives under /usr/local/share so the /etc/tinyproxy tmpfs does not hide it.
 sed "s|__FILTER_FILE__|$FILTER_FILE|g" \
     /usr/local/share/tinyproxy/tinyproxy.conf.template \
     > /etc/tinyproxy/tinyproxy.conf

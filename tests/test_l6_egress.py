@@ -1,4 +1,4 @@
-"""L6 egress allowlist tests — runs against a live docker-compose stack.
+"""L6 egress allowlist tests. Runs against a live docker-compose stack.
 
 These tests verify SECURITY.md control 10b end-to-end. They are the egress
 pen-test: every PR runs them in CI and they fail the build if the proxy
@@ -25,20 +25,6 @@ import pytest
 _BOT_CONTAINER = "kayaclaw-agent-1"
 
 
-def _py_in_agent(code: str, timeout: int = 15) -> subprocess.CompletedProcess:
-    """Run a Python snippet inside the bot container and capture output.
-
-    httpx automatically picks up the HTTPS_PROXY/HTTP_PROXY env vars set
-    in compose, so unless `trust_env=False` is passed in the snippet the
-    request is routed through the proxy sidecar.
-    """
-    return subprocess.run(
-        ["docker", "exec", _BOT_CONTAINER, "python3", "-c", code],
-        capture_output=True,
-        timeout=timeout,
-    )
-
-
 @pytest.fixture(scope="module", autouse=True)
 def _stack_required() -> None:
     """Skip the whole module unless docker is on PATH AND the bot
@@ -63,22 +49,21 @@ def _stack_required() -> None:
 pytestmark = pytest.mark.docker
 
 
-# Common probe template: HEAD via httpx (default trust_env=True so HTTPS_PROXY
-# is honored). For an allowed host, the proxy forwards and httpx returns a
-# Response; the test only cares that the proxy let traffic through, not what
-# upstream said (a 401/403 from upstream is still a successful proxy traversal).
-# For a denied HTTPS host, tinyproxy refuses the CONNECT tunnel with 403 and
-# httpx surfaces that as ProxyError. For a denied plain-HTTP host, tinyproxy
-# returns a 403 response directly. The probe prints one of:
-#   "OK <status>"        — proxy forwarded, upstream answered (any code)
-#   "PROXY_ERR <msg>"    — tinyproxy refused (CONNECT denial includes "403")
-#   "ERR <Type>: <msg>"  — transport failure (DNS, no route, timeout)
-# Exit code 0 always; tests assert on stdout content.
-_PROBE_VIA_PROXY = textwrap.dedent("""
+# Single probe template, parameterized on trust_env (sys.argv[2]). With
+# trust_env=1 (default), httpx honors HTTPS_PROXY and the request goes
+# through tinyproxy. With trust_env=0, httpx bypasses env and goes direct,
+# which exercises the kernel-layer block from `agent-net: internal: true`.
+#
+# Stdout always exits 0 with one of:
+#   "OK <status>"        proxy forwarded, upstream answered (any code)
+#   "PROXY_ERR <msg>"    tinyproxy refused (CONNECT denial includes "403")
+#   "ERR <Type>: <msg>"  transport failure (DNS, no route, timeout)
+_PROBE = textwrap.dedent("""
     import sys, httpx
     url = sys.argv[1]
+    trust = sys.argv[2] == "1"
     try:
-        r = httpx.head(url, timeout=5, follow_redirects=False)
+        r = httpx.head(url, timeout=5, follow_redirects=False, trust_env=trust)
         print(f"OK {r.status_code}")
     except httpx.ProxyError as e:
         print(f"PROXY_ERR {e}")
@@ -86,25 +71,10 @@ _PROBE_VIA_PROXY = textwrap.dedent("""
         print(f"ERR {type(e).__name__}: {e}")
 """).strip()
 
-# Probe that bypasses the proxy entirely (trust_env=False). Used to verify
-# that agent-net's `internal: true` blocks direct external traffic at the
-# kernel layer, independently of the tinyproxy filter.
-_PROBE_DIRECT = textwrap.dedent("""
-    import sys, httpx
-    url = sys.argv[1]
-    try:
-        r = httpx.get(url, timeout=5, follow_redirects=False, trust_env=False)
-        print(f"OK {r.status_code}")
-    except Exception as e:
-        print(f"ERR {type(e).__name__}: {e}")
-""").strip()
 
-
-def _run_probe(script: str, url: str, timeout: int = 15) -> subprocess.CompletedProcess:
-    # `python3 -c "<script>" <url>` makes sys.argv == ["-c", url]; the
-    # snippet reads sys.argv[1].
+def _run_probe(url: str, *, via_proxy: bool = True, timeout: int = 15) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["docker", "exec", _BOT_CONTAINER, "python3", "-c", script, url],
+        ["docker", "exec", _BOT_CONTAINER, "python3", "-c", _PROBE, url, "1" if via_proxy else "0"],
         capture_output=True,
         timeout=timeout,
     )
@@ -112,7 +82,7 @@ def _run_probe(script: str, url: str, timeout: int = 15) -> subprocess.Completed
 
 def test_allowlist_allows_telegram() -> None:
     """The allowlisted Telegram API host is reachable through the proxy."""
-    result = _run_probe(_PROBE_VIA_PROXY, "https://api.telegram.org")
+    result = _run_probe("https://api.telegram.org")
     out = result.stdout.decode(errors="replace")
     assert out.startswith("OK "), (
         f"Telegram should be reachable through the proxy. stdout={out!r} "
@@ -121,13 +91,15 @@ def test_allowlist_allows_telegram() -> None:
 
 
 def test_proxy_denies_unauthorized_host_with_403() -> None:
-    """A non-allowlisted hostname returns proxy 403, NOT a generic timeout."""
-    result = _run_probe(_PROBE_VIA_PROXY, "https://evil.example.com")
+    """A non-allowlisted hostname returns proxy 403, NOT a generic timeout.
+
+    tinyproxy denies the CONNECT tunnel with 403 for HTTPS; httpx surfaces
+    that as ProxyError whose message includes the status line. Asserting on
+    "403" (not just non-zero) ensures the test does NOT silently pass on a
+    DNS failure or timeout.
+    """
+    result = _run_probe("https://evil.example.com")
     out = result.stdout.decode(errors="replace")
-    # tinyproxy denies the CONNECT tunnel with 403 for HTTPS; httpx surfaces
-    # that as a ProxyError whose message includes the status line. Asserting
-    # on "403" (not just non-zero) ensures the test does NOT silently pass on
-    # DNS failure or timeout.
     assert "403" in out, (
         f"Expected proxy 403 for evil.example.com; stdout={out!r} "
         f"stderr={result.stderr.decode(errors='replace')!r}"
@@ -138,9 +110,9 @@ def test_proxy_denies_ip_literal_bypass() -> None:
     """An IP literal request through the proxy is denied (no IPs allowlisted).
 
     Plain HTTP (not HTTPS) so tinyproxy's filter denial comes back as a
-    direct 403 response rather than a CONNECT failure — easier to assert on.
+    direct 403 response rather than a CONNECT failure.
     """
-    result = _run_probe(_PROBE_VIA_PROXY, "http://1.1.1.1")
+    result = _run_probe("http://1.1.1.1")
     out = result.stdout.decode(errors="replace")
     assert "403" in out, (
         f"Expected proxy 403 for 1.1.1.1; stdout={out!r} "
@@ -153,7 +125,7 @@ def test_network_isolation_blocks_proxy_bypass() -> None:
     kernel layer (no route), not at the proxy filter. This proves the
     network-level guarantee independently of tinyproxy.
     """
-    result = _run_probe(_PROBE_DIRECT, "http://1.1.1.1")
+    result = _run_probe("http://1.1.1.1", via_proxy=False)
     out = result.stdout.decode(errors="replace").lower()
     assert out.startswith("err "), (
         "internal: true must block direct external traffic from the bot "
@@ -174,7 +146,7 @@ def test_allowlist_allows_configured_llm_provider() -> None:
     must be reachable through the proxy (validates dynamic allowlist
     generation from config.yaml).
     """
-    result = _run_probe(_PROBE_VIA_PROXY, "https://openrouter.ai")
+    result = _run_probe("https://openrouter.ai")
     out = result.stdout.decode(errors="replace")
     assert out.startswith("OK "), (
         f"Configured LLM provider host should be reachable. stdout={out!r} "

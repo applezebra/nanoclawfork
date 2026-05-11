@@ -26,7 +26,7 @@ dependencies = [
 
 [project.scripts]
 # `entrypoint.sh` calls `exec agent` inside the container. That resolves
-# to this entry point after pip-install. Added in L5 Step 1 (eng-review P2-1).
+# to this entry point after pip-install.
 agent = "agent.__main__:main"
 
 [tool.pytest.ini_options]
