@@ -1,0 +1,107 @@
+name: egress-test
+
+# Brings up the full kayaclaw compose stack (init + proxy + agent) and runs
+# tests/test_l6_egress.py against the running bot container. The test asserts
+# that the proxy allows allowlisted hosts (Telegram, configured LLM provider),
+# denies non-allowlisted hosts with HTTP 403, denies IP-literal bypass attempts,
+# and that direct external traffic from the bot fails at the kernel layer
+# (proving `internal: true` on agent-net is in effect).
+#
+# Separate workflow from cve-scan (different concern: runtime network behavior
+# vs static image scan).
+#
+# pull_request (NOT pull_request_target): forks' PRs run in the fork's
+# security context, so they cannot read repo secrets. pull_request_target on
+# untrusted fork code is a known secret-exfiltration vector.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: egress-test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  egress-test:
+    name: egress-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        # actions/checkout v5.0.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Set up Python
+        # actions/setup-python v6.2.0
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.12"
+
+      - name: Install pytest
+        run: pip install pytest==8.3.4
+
+      - name: Provide test config + env for compose
+        run: |
+          # Minimal config.yaml: openrouter as the active provider so the
+          # init service derives openrouter.ai for the allowlist. The actual
+          # API key is fake; the test never makes a real LLM call.
+          cat > config.yaml <<'YAML'
+          providers:
+            openrouter:
+              kind: openai_compatible
+              base_url: https://openrouter.ai/api/v1
+              api_key_env: OPENROUTER_API_KEY
+              allowed_models:
+                - meta-llama/llama-3.3-70b-instruct
+          agents:
+            personal-assistant:
+              model: openrouter/meta-llama/llama-3.3-70b-instruct
+              system_prompt: "test"
+              connectors:
+                - telegram
+          YAML
+          # Fake env values just so the bot's startup validation passes.
+          # The bot will try to connect to Telegram and fail (expected); the
+          # egress test does not need the bot to be a healthy LLM client,
+          # only that the bot container is up and reachable via docker exec.
+          cat > .env <<'ENV'
+          TELEGRAM_BOT_TOKEN=fake-token-for-egress-test-only
+          ALLOWED_TELEGRAM_CHAT_IDS=1
+          OPENROUTER_API_KEY=fake-key-for-egress-test-only
+          DEEPINFRA_API_KEY=
+          GROQ_API_KEY=
+          LOG_LEVEL=INFO
+          ENV
+
+      - name: Build and start the stack
+        run: |
+          # Fake TELEGRAM_BOT_TOKEN would crash-loop the agent under the
+          # production `restart: unless-stopped` policy; idle it so docker
+          # exec can reach the bot container's network namespace. init and
+          # proxy still run their real entrypoints.
+          cat > /tmp/agent-idle.yaml <<'OVERRIDE'
+          services:
+            agent:
+              entrypoint: ["tail", "-f", "/dev/null"]
+              restart: "no"
+          OVERRIDE
+          docker compose -p kayaclaw -f docker-compose.yaml -f /tmp/agent-idle.yaml up -d --build --wait --wait-timeout 120
+          docker compose -p kayaclaw ps
+          docker compose -p kayaclaw logs init
+
+      - name: Run egress test suite
+        run: |
+          pytest tests/test_l6_egress.py -m docker -v
+
+      - name: Show compose logs on failure
+        if: failure()
+        run: docker compose -p kayaclaw logs --no-color
+
+      - name: Tear down
+        if: always()
+        run: docker compose -p kayaclaw down -v --remove-orphans

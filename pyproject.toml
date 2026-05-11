@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "kayaclaw"
-version = "0.1.5"
+version = "0.1.6"
 description = "A small, hardened AI agent for Telegram. SQLite memory, your choice of OpenAI-compatible LLM provider."
 # `readme` field intentionally omitted in L0. README.md is created in L6.
 # Add `readme = "README.md"` here as part of L6 release polish.
@@ -26,8 +26,16 @@ dependencies = [
 
 [project.scripts]
 # `entrypoint.sh` calls `exec agent` inside the container. That resolves
-# to this entry point after pip-install. Added in L5 Step 1 (eng-review P2-1).
+# to this entry point after pip-install.
 agent = "agent.__main__:main"
+
+[tool.pytest.ini_options]
+# v0.1.6: register the `docker` marker so the egress test suite (which
+# runs against a live compose stack) can be skipped during local pytest
+# runs and selected explicitly in CI via `pytest -m docker`.
+markers = [
+    "docker: tests that require a running docker-compose stack (egress L6)",
+]
 
 [tool.flit.module]
 # The distribution name is `kayaclaw` (PyPI / branding) but the import path

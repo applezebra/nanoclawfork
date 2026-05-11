@@ -1,0 +1,34 @@
+# tinyproxy.conf.template: egress allowlist proxy for kayaclaw.
+# Rendered into /etc/tinyproxy/tinyproxy.conf at container start by
+# /usr/local/bin/generate-config.sh. Edit this template, not the
+# rendered file. __FILTER_FILE__ is replaced at render time.
+
+# No User/Group directive: container starts as USER proxy with cap_drop
+# ALL, and tinyproxy's in-process setuid is unreliable in that state.
+
+# /etc/tinyproxy tmpfs is the only writable location for this user;
+# tinyproxy's default /run/tinyproxy/... path does not exist on the
+# read-only root filesystem.
+PidFile "/etc/tinyproxy/tinyproxy.pid"
+
+# Only network reachable is agent-net (internal: true), so binding all
+# interfaces inside the container is bot-only by topology.
+Port 8888
+Listen 0.0.0.0
+
+# Conservative; the bot's own httpx timeouts are the source of truth.
+Timeout 60
+LogLevel Notice
+
+# CONNECT must be allowed for HTTPS tunneling.
+ConnectPort 443
+ConnectPort 80
+
+# Hostname allowlist. FilterDefaultDeny Yes blocks everything not matched
+# by __FILTER_FILE__. FilterType ere is anchored POSIX ERE per entry (the
+# deprecated FilterExtended Yes is silently dropped in tinyproxy 1.11+).
+Filter "__FILTER_FILE__"
+FilterDefaultDeny Yes
+FilterType ere
+FilterCaseSensitive No
+FilterURLs No
