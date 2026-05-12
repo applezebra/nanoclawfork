@@ -27,12 +27,38 @@ A personal AI agent that runs in a hardened Docker container. Telegram in front,
 
 ## Quick start
 
-Prerequisite: Docker 20.10+ with the Compose v2 plugin. Verify with `docker compose version`.
+Prerequisites: Docker 20.10+ with the Compose v2 plugin (`docker compose version` to verify), Python 3.12+.
 
-Clone and copy the templates:
+Clone the repo and run the setup command:
 
 ```
 git clone https://github.com/kayaclaw/kayaclaw && cd kayaclaw
+python3 -m agent init
+```
+
+`init` asks for three things and writes `.env` and `config.yaml` for you:
+
+- Your AI provider API key. OpenRouter, DeepInfra, Groq, or any OpenAI-compatible endpoint.
+- Your Telegram bot token from [@BotFather](https://t.me/BotFather).
+- A message you send to your bot, so init can capture your chat ID automatically (no @userinfobot needed).
+
+Each answer is validated against the real provider before init moves on.
+
+Bring it up:
+
+```
+docker compose up -d
+```
+
+Send a message from the chat init captured. The bot replies via the configured LLM.
+
+If it doesn't reply, check the logs with `docker compose logs -f`. Stop with `docker compose down`.
+
+### Manual setup (advanced)
+
+If you prefer to edit `.env` and `config.yaml` by hand instead of running `init`, copy the templates:
+
+```
 cp .env.example .env
 cp config.example.yaml config.yaml
 ```
@@ -42,16 +68,6 @@ Fill in three values in `.env`:
 - `TELEGRAM_BOT_TOKEN` from [@BotFather](https://t.me/BotFather)
 - `ALLOWED_TELEGRAM_CHAT_IDS` from [@userinfobot](https://t.me/userinfobot)
 - `OPENROUTER_API_KEY` from [openrouter.ai](https://openrouter.ai). The example ships with OpenRouter as a starting point because one key gets you many models (Llama, Claude, Gemini, and more). You can swap to DeepInfra, Groq, or any OpenAI-compatible provider; see "Switching providers" below.
-
-Bring it up:
-
-```
-docker compose up -d
-```
-
-Send a message from your allowlisted Telegram chat. The bot replies via the configured LLM.
-
-If it doesn't reply, check the logs with `docker compose logs -f`. Stop with `docker compose down`.
 
 ## Switching providers
 
