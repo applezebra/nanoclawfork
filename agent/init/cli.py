@@ -8,6 +8,7 @@ from __future__ import annotations
 import sys
 from typing import Callable
 
+from agent.init.polling import PollTimeout, clear_backlog, poll_for_chat_id
 from agent.init.validators import (
     ValidationResult,
     detect_provider_from_key,
@@ -175,14 +176,55 @@ def _step_telegram_token() -> tuple[str, str]:
     return token, bot_username
 
 
+def _prompt_manual_chat_id() -> int:
+    while True:
+        raw = _prompt("Enter your Telegram chat ID (integer): ")
+        try:
+            return int(raw)
+        except ValueError:
+            print("  Not an integer. Try again or press Ctrl-C to cancel.")
+
+
+def _step_chat_id(token: str, bot_username: str) -> int:
+    print()
+    print("Step 3 of 3: Telegram chat ID.")
+    print(f"Open Telegram, find @{bot_username}, and send it any message.")
+    print("Waiting up to 5 minutes. Press Ctrl-C to enter the chat ID manually.")
+    offset = clear_backlog(token)
+    while True:
+        try:
+            chat_id, offset = poll_for_chat_id(token, offset)
+        except PollTimeout:
+            print("  No message received in 5 minutes.")
+            if _confirm("Enter chat ID manually?", default_yes=True):
+                return _prompt_manual_chat_id()
+            print("  Waiting again...")
+            continue
+        except KeyboardInterrupt:
+            print("\n  Capture cancelled.")
+            if _confirm("Enter chat ID manually?", default_yes=True):
+                return _prompt_manual_chat_id()
+            print("  Waiting again...")
+            continue
+        print()
+        print(f"  Got chat ID: {chat_id}")
+        print("  This will be the only account allowed to talk to your bot.")
+        if _confirm("Use this chat ID?"):
+            return chat_id
+        print("  Discarded. Waiting for a different message...")
+        # P2-3: offset is already advanced past the rejected update;
+        # next iteration waits for the next higher update_id.
+
+
 def main() -> int:
     """Entry point for `python3 -m agent init`. Returns process exit code."""
     print("kayaclaw init")
     print("Walk through four questions to set up your first install.")
     provider_key, provider_cfg, api_key = _step_provider()
     token, bot_username = _step_telegram_token()
+    chat_id = _step_chat_id(token, bot_username)
     print()
-    print(f"Provider: {provider_cfg['label']}. Bot: @{bot_username}.")
-    print("Chat ID capture and file writes arrive in the next step.")
-    _ = api_key, token, provider_key  # wired in Step 4
+    print(f"Provider: {provider_cfg['label']}. Bot: @{bot_username}. Chat: {chat_id}.")
+    print("File writes arrive in the next step.")
+    _ = api_key, provider_key  # wired in Step 4
     return 0
