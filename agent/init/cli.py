@@ -5,6 +5,7 @@ Telegram bot token, chat ID capture, then writes .env and config.yaml.
 """
 from __future__ import annotations
 
+import getpass
 import subprocess
 import sys
 from pathlib import Path
@@ -53,6 +54,13 @@ PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
 def _prompt(text: str) -> str:
     """Single point of input() for testability."""
     return input(text).strip()
+
+
+def _prompt_secret(text: str) -> str:
+    """Like _prompt but does not echo. Used for API keys and bot tokens
+    so secrets do not land in terminal scrollback or multiplexer buffers.
+    """
+    return getpass.getpass(text).strip()
 
 
 def _confirm(text: str, default_yes: bool = True) -> bool:
@@ -107,13 +115,15 @@ def _retry_validator(
     prompt_text: str,
     validator: Callable[[str], ValidationResult],
     failure_advice: str,
+    prompter: Callable[[str], str] = _prompt,
 ) -> tuple[str, ValidationResult]:
     """Run validator up to _MAX_ATTEMPTS times. Returns (raw_value, result).
 
-    On all-attempts-failed, exits the process with code 1.
+    On all-attempts-failed, exits the process with code 1. Pass
+    `prompter=_prompt_secret` to hide the typed value (API keys, tokens).
     """
     for attempt in range(_MAX_ATTEMPTS):
-        value = _prompt(prompt_text)
+        value = prompter(prompt_text)
         result = validator(value)
         if result.ok:
             return value, result
@@ -129,7 +139,8 @@ def _step_provider() -> tuple[str, dict[str, str], str]:
     """Returns (provider_key, provider_config_dict, api_key)."""
     print()
     print("Step 1 of 3: AI provider key.")
-    raw = _prompt("Paste your AI provider API key, or press Enter to pick from a list: ")
+    print("(Your key is not echoed. Press Enter on an empty line to pick from a list.)")
+    raw = _prompt_secret("Paste your AI provider API key: ")
     if raw:
         detected = detect_provider_from_key(raw)
         if detected in PROVIDER_DEFAULTS:
@@ -152,9 +163,10 @@ def _step_provider() -> tuple[str, dict[str, str], str]:
         return validate_provider_key(provider_cfg["base_url"], key)
 
     api_key, _result = _retry_validator(
-        f"Paste your {provider_cfg['label']} API key: ",
+        f"Paste your {provider_cfg['label']} API key (not echoed): ",
         _val,
         "Check the provider's API key dashboard.",
+        prompter=_prompt_secret,
     )
     print(f"  Provider key valid for {provider_cfg['label']}.")
     return provider_key, provider_cfg, api_key
@@ -166,9 +178,10 @@ def _step_telegram_token() -> tuple[str, str]:
     print("Step 2 of 3: Telegram bot token.")
     print("Create a bot via @BotFather on Telegram if you have not already.")
     token, result = _retry_validator(
-        "Paste your Telegram bot token: ",
+        "Paste your Telegram bot token (not echoed): ",
         validate_telegram_token,
         "Check the token from @BotFather on Telegram.",
+        prompter=_prompt_secret,
     )
     bot_username = (result.data or {}).get("username", "")
     print(f"  Telegram bot token valid. Your bot is @{bot_username}.")

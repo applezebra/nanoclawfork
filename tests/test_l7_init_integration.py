@@ -147,7 +147,7 @@ def test_happy_path_openrouter(chdir_tmp: Path, fast_time, docker_present):
         _updates([]),                            # backlog clear: empty
         _updates([_msg(100, 555555)]),           # first poll: real message
     ]
-    with patch("builtins.input", side_effect=fake_input), \
+    with patch("builtins.input", side_effect=fake_input), patch("agent.init.cli.getpass.getpass", side_effect=fake_input), \
          patch("urllib.request.urlopen", side_effect=_script_urlopen(responses + [
              _updates([]),                       # backlog clear
              _updates([_msg(100, 555555)]),      # first poll
@@ -173,7 +173,7 @@ def test_happy_path_groq(chdir_tmp: Path, fast_time, docker_present):
         "456:tg-token",
         "",                  # accept chat id
     )
-    with patch("builtins.input", side_effect=fake_input), \
+    with patch("builtins.input", side_effect=fake_input), patch("agent.init.cli.getpass.getpass", side_effect=fake_input), \
          patch("urllib.request.urlopen", side_effect=_script_urlopen([
              _models_ok(), _getme_ok(),
              _updates([]), _updates([_msg(1, 42)]),
@@ -195,7 +195,7 @@ def test_happy_path_deepinfra_via_list(chdir_tmp: Path, fast_time, docker_presen
         "789:tg",
         "",          # accept chat id
     )
-    with patch("builtins.input", side_effect=fake_input), \
+    with patch("builtins.input", side_effect=fake_input), patch("agent.init.cli.getpass.getpass", side_effect=fake_input), \
          patch("urllib.request.urlopen", side_effect=_script_urlopen([
              _models_ok(), _getme_ok(),
              _updates([]), _updates([_msg(1, 99)]),
@@ -221,7 +221,7 @@ def test_happy_path_custom_provider(chdir_tmp: Path, fast_time, docker_present):
         "11:tg",
         "",                              # accept chat id
     )
-    with patch("builtins.input", side_effect=fake_input), \
+    with patch("builtins.input", side_effect=fake_input), patch("agent.init.cli.getpass.getpass", side_effect=fake_input), \
          patch("urllib.request.urlopen", side_effect=_script_urlopen([
              _models_ok(), _getme_ok(),
              _updates([]), _updates([_msg(1, 7)]),
@@ -252,7 +252,7 @@ def test_telegram_retry_then_success(chdir_tmp: Path, fast_time, docker_present)
         _updates([]),
         _updates([_msg(1, 8)]),
     ]
-    with patch("builtins.input", side_effect=fake_input), \
+    with patch("builtins.input", side_effect=fake_input), patch("agent.init.cli.getpass.getpass", side_effect=fake_input), \
          patch("urllib.request.urlopen", side_effect=_script_urlopen(val_responses)):
         rc = cli_mod.main()
     assert rc == 0
@@ -277,7 +277,7 @@ def test_provider_retry_then_success(chdir_tmp: Path, fast_time, docker_present)
         _updates([]),
         _updates([_msg(1, 5)]),
     ]
-    with patch("builtins.input", side_effect=fake_input), \
+    with patch("builtins.input", side_effect=fake_input), patch("agent.init.cli.getpass.getpass", side_effect=fake_input), \
          patch("urllib.request.urlopen", side_effect=_script_urlopen(val_responses)):
         rc = cli_mod.main()
     assert rc == 0
@@ -297,7 +297,7 @@ def test_three_telegram_failures_exits_no_files(chdir_tmp: Path, fast_time, dock
         _http_err(401, {"ok": False}),
         _http_err(401, {"ok": False}),
     ]
-    with patch("builtins.input", side_effect=fake_input), \
+    with patch("builtins.input", side_effect=fake_input), patch("agent.init.cli.getpass.getpass", side_effect=fake_input), \
          patch("urllib.request.urlopen", side_effect=_script_urlopen(val_responses)):
         with pytest.raises(SystemExit) as exc_info:
             cli_mod.main()
@@ -329,7 +329,7 @@ def test_existing_env_overwrite_runs_full_flow(chdir_tmp: Path, fast_time, docke
         "sk-or-key", "",
         "tg:token", "",
     )
-    with patch("builtins.input", side_effect=fake_input), \
+    with patch("builtins.input", side_effect=fake_input), patch("agent.init.cli.getpass.getpass", side_effect=fake_input), \
          patch("urllib.request.urlopen", side_effect=_script_urlopen([
              _models_ok(), _getme_ok(),
              _updates([]), _updates([_msg(1, 6)]),
@@ -351,7 +351,7 @@ def test_docker_absent_init_still_succeeds(
         lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("docker missing")),
     )
     fake_input, _q = _input_queue("sk-or-key", "", "tg:token", "")
-    with patch("builtins.input", side_effect=fake_input), \
+    with patch("builtins.input", side_effect=fake_input), patch("agent.init.cli.getpass.getpass", side_effect=fake_input), \
          patch("urllib.request.urlopen", side_effect=_script_urlopen([
              _models_ok(), _getme_ok(),
              _updates([]), _updates([_msg(1, 9)]),
@@ -377,7 +377,7 @@ def test_chat_id_timeout_falls_back_to_manual(chdir_tmp: Path, docker_present, m
         "",            # accept manual-entry fallback prompt (default yes)
         "777",         # manual chat id
     )
-    with patch("builtins.input", side_effect=fake_input), \
+    with patch("builtins.input", side_effect=fake_input), patch("agent.init.cli.getpass.getpass", side_effect=fake_input), \
          patch("urllib.request.urlopen", side_effect=_script_urlopen([
              _models_ok(), _getme_ok(),
              _updates([]),     # backlog clear
@@ -398,7 +398,7 @@ def test_non_message_update_skipped(chdir_tmp: Path, fast_time, docker_present):
         "edited_message": {"chat": {"id": 11111, "type": "private"}, "text": "edit"},
     }
     real = _msg(11, 22222)
-    with patch("builtins.input", side_effect=fake_input), \
+    with patch("builtins.input", side_effect=fake_input), patch("agent.init.cli.getpass.getpass", side_effect=fake_input), \
          patch("urllib.request.urlopen", side_effect=_script_urlopen([
              _models_ok(), _getme_ok(),
              _updates([]),         # backlog

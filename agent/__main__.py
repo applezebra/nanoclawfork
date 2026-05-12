@@ -12,12 +12,25 @@ _DEFAULT_CONFIG_PATH = Path("/config/config.yaml")
 
 
 def main(config_path: Path = _DEFAULT_CONFIG_PATH) -> int:
-    """Compose + run. Returns exit code. SYNC connector_run (eng-review P1-2).
+    """Compose + run. Returns exit code. SYNC connector_run.
 
-    Heavy imports are deferred inside this function so `python3 -m agent init`
-    does not pay the pydantic-ai / telegram cold-start cost (the init
-    subcommand never enters this function).
+    Both `python3 -m agent <subcmd>` and the installed `agent` console
+    script enter here. The subcommand dispatch lives at the top so the
+    console script (which bypasses the `if __name__` guard) routes the
+    same way as module invocation.
+
+    Heavy imports for the bot loop are deferred inside this function so
+    `kayaclaw init` does not pay the pydantic-ai / telegram cold-start
+    cost (init exits before those imports run).
     """
+    _subcmd = sys.argv[1] if len(sys.argv) > 1 else None
+    if _subcmd == "init":
+        from agent.init.cli import main as _init_main
+        return _init_main()
+    if _subcmd is not None and not _subcmd.startswith("-"):
+        print(f"Unknown subcommand: {_subcmd!r}. Did you mean 'init'?", file=sys.stderr)
+        return 1
+
     import os
     import sqlite3
 
@@ -90,12 +103,4 @@ def main(config_path: Path = _DEFAULT_CONFIG_PATH) -> int:
 
 
 if __name__ == "__main__":
-    _subcmd = sys.argv[1] if len(sys.argv) > 1 else None
-    if _subcmd == "init":
-        from agent.init.cli import main as _init_main
-        sys.exit(_init_main())
-    elif _subcmd is not None and not _subcmd.startswith("-"):
-        print(f"Unknown subcommand: {_subcmd!r}. Did you mean 'init'?", file=sys.stderr)
-        sys.exit(1)
-    else:
-        sys.exit(main())
+    sys.exit(main())
