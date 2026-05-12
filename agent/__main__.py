@@ -84,4 +84,12 @@ def main(config_path: Path = _DEFAULT_CONFIG_PATH) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    _subcmd = sys.argv[1] if len(sys.argv) > 1 else None
+    if _subcmd == "init":
+        from agent.init.cli import main as _init_main
+        sys.exit(_init_main())
+    elif _subcmd is not None and not _subcmd.startswith("-"):
+        print(f"Unknown subcommand: {_subcmd!r}. Did you mean 'init'?", file=sys.stderr)
+        sys.exit(1)
+    else:
+        sys.exit(main())
