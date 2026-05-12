@@ -82,8 +82,8 @@ def poll_for_chat_id(
     token: str,
     offset: int,
     timeout_seconds: int = _DEFAULT_DEADLINE_SECONDS,
-    sleep_fn: Callable[[float], None] = time.sleep,
-    monotonic_fn: Callable[[], float] = time.monotonic,
+    sleep_fn: Callable[[float], None] | None = None,
+    monotonic_fn: Callable[[], float] | None = None,
 ) -> tuple[int, int]:
     """Long-poll until a message arrives. Returns (chat_id, next_offset).
 
@@ -99,6 +99,10 @@ def poll_for_chat_id(
     rejected update is not re-presented because it has already been
     acknowledged to Telegram.
     """
+    if sleep_fn is None:
+        sleep_fn = time.sleep
+    if monotonic_fn is None:
+        monotonic_fn = time.monotonic
     deadline = monotonic_fn() + timeout_seconds
     while monotonic_fn() < deadline:
         try:

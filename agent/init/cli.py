@@ -5,6 +5,7 @@ Telegram bot token, chat ID capture, then writes .env and config.yaml.
 """
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 from typing import Callable
@@ -276,10 +277,22 @@ def _step_write(
     print("to the docker group.")
 
 
+def _check_docker_presence() -> None:
+    """Non-blocking probe (FR-9 / ADR-6). Logs a one-line note if missing."""
+    try:
+        subprocess.run(
+            ["docker", "--version"], capture_output=True, timeout=5, check=False
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        print()
+        print("Note: docker was not found on PATH. Install it before the final step.")
+
+
 def main() -> int:
     """Entry point for `python3 -m agent init`. Returns process exit code."""
     print("kayaclaw init")
     print("Walk through four questions to set up your first install.")
+    _check_docker_presence()
     if not _step_existing_files():
         return 0
     provider_key, provider_cfg, api_key = _step_provider()
