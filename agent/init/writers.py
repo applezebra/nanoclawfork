@@ -81,7 +81,7 @@ def write_files(
 ) -> None:
     """Validate config, then write both files atomically.
 
-    Sequence (per PLAN write-then-validate fix):
+    Sequence:
       1. Parse config_content and run Config.model_validate (no disk writes).
       2. Write .env to .env.tmp.
       3. Write config.yaml to config.yaml.tmp.

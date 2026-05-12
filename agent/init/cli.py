@@ -21,14 +21,18 @@ from agent.init.writers import render_config, render_env, write_files
 
 _MAX_ATTEMPTS = 3
 
-# Mirrors config.example.yaml. A drift-detection test in Step 4 will
-# diff this against the example file so the two cannot disagree.
+# Mirrors config.example.yaml; drift between the two is enforced by tests.
+# `prefix_label` is set on providers whose API key has a published prefix
+# regex (validators.detect_provider_from_key uses the same mapping). dict
+# insertion order doubles as the picker order, so adding a provider here
+# is a one-line edit.
 PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
     "openrouter": {
         "base_url": "https://openrouter.ai/api/v1",
         "api_key_env": "OPENROUTER_API_KEY",
         "default_model": "meta-llama/llama-3.3-70b-instruct",
         "label": "OpenRouter (openrouter.ai, one key, many models)",
+        "prefix_label": "OpenRouter",
     },
     "deepinfra": {
         "base_url": "https://api.deepinfra.com/v1/openai",
@@ -41,10 +45,9 @@ PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
         "api_key_env": "GROQ_API_KEY",
         "default_model": "llama-3.3-70b-versatile",
         "label": "Groq (groq.com)",
+        "prefix_label": "Groq",
     },
 }
-
-_LIST_ORDER = ["openrouter", "deepinfra", "groq"]
 
 
 def _prompt(text: str) -> str:
@@ -65,23 +68,25 @@ def _select_provider_from_list() -> tuple[str, dict[str, str]]:
 
     For 'Other', returns ('custom', user-supplied dict).
     """
+    keys = list(PROVIDER_DEFAULTS)
+    other_choice = len(keys) + 1
     print()
     print("Pick your AI provider:")
-    for i, key in enumerate(_LIST_ORDER, start=1):
+    for i, key in enumerate(keys, start=1):
         print(f"  {i}. {PROVIDER_DEFAULTS[key]['label']}")
-    print(f"  {len(_LIST_ORDER) + 1}. Other (any OpenAI-compatible endpoint)")
+    print(f"  {other_choice}. Other (any OpenAI-compatible endpoint)")
     while True:
-        raw = _prompt(f"Enter a number [1-{len(_LIST_ORDER) + 1}]: ")
+        raw = _prompt(f"Enter a number [1-{other_choice}]: ")
         if not raw.isdigit():
             print("  Please enter a number.")
             continue
         choice = int(raw)
-        if 1 <= choice <= len(_LIST_ORDER):
-            key = _LIST_ORDER[choice - 1]
+        if 1 <= choice <= len(keys):
+            key = keys[choice - 1]
             return key, dict(PROVIDER_DEFAULTS[key])
-        if choice == len(_LIST_ORDER) + 1:
+        if choice == other_choice:
             return _prompt_custom_provider()
-        print(f"  Please enter a number between 1 and {len(_LIST_ORDER) + 1}.")
+        print(f"  Please enter a number between 1 and {other_choice}.")
 
 
 def _prompt_custom_provider() -> tuple[str, dict[str, str]]:
@@ -127,24 +132,15 @@ def _step_provider() -> tuple[str, dict[str, str], str]:
     raw = _prompt("Paste your AI provider API key, or press Enter to pick from a list: ")
     if raw:
         detected = detect_provider_from_key(raw)
-        if detected == "openrouter" and _confirm("Looks like an OpenRouter key. Proceed?"):
-            provider_key = "openrouter"
-            provider_cfg = dict(PROVIDER_DEFAULTS[provider_key])
-            api_key = raw
-            result = validate_provider_key(provider_cfg["base_url"], api_key)
-            if result.ok:
-                print(f"  Provider key valid for {provider_cfg['label']}.")
-                return provider_key, provider_cfg, api_key
-            print(f"  Error: {result.error}")
-        elif detected == "groq" and _confirm("Looks like a Groq key. Proceed?"):
-            provider_key = "groq"
-            provider_cfg = dict(PROVIDER_DEFAULTS[provider_key])
-            api_key = raw
-            result = validate_provider_key(provider_cfg["base_url"], api_key)
-            if result.ok:
-                print(f"  Provider key valid for {provider_cfg['label']}.")
-                return provider_key, provider_cfg, api_key
-            print(f"  Error: {result.error}")
+        if detected in PROVIDER_DEFAULTS:
+            provider_cfg = dict(PROVIDER_DEFAULTS[detected])
+            prefix_label = provider_cfg.get("prefix_label", provider_cfg["label"])
+            if _confirm(f"Looks like a {prefix_label} key. Proceed?"):
+                result = validate_provider_key(provider_cfg["base_url"], raw)
+                if result.ok:
+                    print(f"  Provider key valid for {provider_cfg['label']}.")
+                    return detected, provider_cfg, raw
+                print(f"  Error: {result.error}")
         elif detected == "openai-suspect":
             print("  That looks like it might be an OpenAI key. OpenAI is not")
             print("  in the supported list. Pick your provider from the list:")
@@ -215,8 +211,6 @@ def _step_chat_id(token: str, bot_username: str) -> int:
         if _confirm("Use this chat ID?"):
             return chat_id
         print("  Discarded. Waiting for a different message...")
-        # P2-3: offset is already advanced past the rejected update;
-        # next iteration waits for the next higher update_id.
 
 
 def _step_existing_files() -> bool:
@@ -299,5 +293,4 @@ def main() -> int:
     token, bot_username = _step_telegram_token()
     chat_id = _step_chat_id(token, bot_username)
     _step_write(token, chat_id, provider_cfg, api_key, provider_key)
-    _ = bot_username  # reserved for future "test bot reachability" check
     return 0

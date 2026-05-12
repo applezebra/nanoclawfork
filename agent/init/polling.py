@@ -113,6 +113,10 @@ def poll_for_chat_id(
             sleep_fn(_NETWORK_RETRY_SLEEP)
             continue
         if not updates:
+            # Telegram normally holds the connection for the server-side
+            # timeout. If it returns instantly with an empty list (proxy,
+            # transient state), pause briefly so we do not spin.
+            sleep_fn(_NETWORK_RETRY_SLEEP)
             continue
         for update in updates:
             update_id = update.get("update_id")

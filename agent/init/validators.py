@@ -112,23 +112,26 @@ def validate_provider_key(base_url: str, api_key: str) -> ValidationResult:
     )
 
 
-_PROVIDER_PREFIX_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+# Maps published key prefix to the provider key used in cli.PROVIDER_DEFAULTS.
+# Longer / more specific prefixes must appear first so OpenRouter (sk-or-)
+# wins over the bare sk- branch below.
+PROVIDER_KEY_PREFIXES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^sk-or-"), "openrouter"),
     (re.compile(r"^gsk_"), "groq"),
 ]
 
 
 def detect_provider_from_key(api_key: str) -> str | None:
-    """Return 'openrouter', 'groq', 'openai-suspect', or None.
+    """Return the matching provider key, 'openai-suspect', or None.
 
-    'openai-suspect' signals a bare sk- prefix that did not match OpenRouter.
-    OpenAI is not in the supported list, so cli.py treats this as 'fall
-    through to the numbered list with a heads-up message'.
+    'openai-suspect' signals a bare sk- prefix that did not match a known
+    provider. OpenAI is not in the supported list, so cli.py treats this
+    as 'fall through to the numbered list with a heads-up message'.
     """
     api_key = api_key.strip()
     if not api_key:
         return None
-    for pattern, provider in _PROVIDER_PREFIX_PATTERNS:
+    for pattern, provider in PROVIDER_KEY_PREFIXES:
         if pattern.match(api_key):
             return provider
     if api_key.startswith("sk-"):
