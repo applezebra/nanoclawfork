@@ -5,22 +5,28 @@ connector.run() and converts every startup-failure class into one CRITICAL log.
 """
 from __future__ import annotations
 
-import os
-import sqlite3
 import sys
 from pathlib import Path
-
-from agent.config import ConfigError, load_config
-from agent.connectors.telegram import run as connector_run
-from agent.logging import get_logger, register_secret
-from agent.memory import Memory, default_db_path
-from agent.registry import resolve
 
 _DEFAULT_CONFIG_PATH = Path("/config/config.yaml")
 
 
 def main(config_path: Path = _DEFAULT_CONFIG_PATH) -> int:
-    """Compose + run. Returns exit code. SYNC connector_run (eng-review P1-2)."""
+    """Compose + run. Returns exit code. SYNC connector_run (eng-review P1-2).
+
+    Heavy imports are deferred inside this function so `python3 -m agent init`
+    does not pay the pydantic-ai / telegram cold-start cost (the init
+    subcommand never enters this function).
+    """
+    import os
+    import sqlite3
+
+    from agent.config import ConfigError, load_config
+    from agent.connectors.telegram import run as connector_run
+    from agent.logging import get_logger, register_secret
+    from agent.memory import Memory, default_db_path
+    from agent.registry import resolve
+
     log = get_logger("agent.main")
     try:
         config = load_config(config_path)

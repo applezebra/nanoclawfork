@@ -131,10 +131,9 @@ class TestMainStartupLogging:
         cfg = _write_config(tmp_path)
         monkeypatch.setenv("DEEPINFRA_API_KEY", "fake")
         # Stop before connector_run blocks
-        monkeypatch.setattr(main_mod, "connector_run", MagicMock())
+        monkeypatch.setattr("agent.connectors.telegram.run", MagicMock())
         # Use a temp db path so we don't try to write /data
-        monkeypatch.setattr(
-            main_mod, "default_db_path", lambda: tmp_path / "agent.sqlite"
+        monkeypatch.setattr("agent.memory.default_db_path", lambda: tmp_path / "agent.sqlite"
         )
 
         with caplog.at_level(logging.INFO, logger="agent.main"):
@@ -163,9 +162,8 @@ class TestMainSyncContract:
         monkeypatch.setenv("DEEPINFRA_API_KEY", "fake")
 
         connector_mock = MagicMock()
-        monkeypatch.setattr(main_mod, "connector_run", connector_mock)
-        monkeypatch.setattr(
-            main_mod, "default_db_path", lambda: tmp_path / "agent.sqlite"
+        monkeypatch.setattr("agent.connectors.telegram.run", connector_mock)
+        monkeypatch.setattr("agent.memory.default_db_path", lambda: tmp_path / "agent.sqlite"
         )
 
         # Hard-fail if anyone calls asyncio.run from main()
@@ -211,9 +209,8 @@ class TestMainKeyboardInterrupt:
         def raise_kbd(*_a, **_kw):
             raise KeyboardInterrupt
 
-        monkeypatch.setattr(main_mod, "connector_run", raise_kbd)
-        monkeypatch.setattr(
-            main_mod, "default_db_path", lambda: tmp_path / "agent.sqlite"
+        monkeypatch.setattr("agent.connectors.telegram.run", raise_kbd)
+        monkeypatch.setattr("agent.memory.default_db_path", lambda: tmp_path / "agent.sqlite"
         )
 
         with caplog.at_level(logging.INFO, logger="agent.main"):
@@ -236,10 +233,9 @@ class TestMainMemoryInitFailure:
         # (a path under a regular file)
         bad_parent = tmp_path / "regular_file"
         bad_parent.write_text("not a dir")
-        monkeypatch.setattr(
-            main_mod, "default_db_path", lambda: bad_parent / "subdir" / "agent.sqlite"
+        monkeypatch.setattr("agent.memory.default_db_path", lambda: bad_parent / "subdir" / "agent.sqlite"
         )
-        monkeypatch.setattr(main_mod, "connector_run", MagicMock())
+        monkeypatch.setattr("agent.connectors.telegram.run", MagicMock())
 
         with caplog.at_level(logging.CRITICAL, logger="agent.main"):
             rc = main_mod.main(cfg)

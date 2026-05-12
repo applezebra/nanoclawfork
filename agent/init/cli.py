@@ -6,6 +6,7 @@ Telegram bot token, chat ID capture, then writes .env and config.yaml.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import Callable
 
 from agent.init.polling import PollTimeout, clear_backlog, poll_for_chat_id
@@ -15,6 +16,7 @@ from agent.init.validators import (
     validate_provider_key,
     validate_telegram_token,
 )
+from agent.init.writers import render_config, render_env, write_files
 
 _MAX_ATTEMPTS = 3
 
@@ -216,15 +218,73 @@ def _step_chat_id(token: str, bot_username: str) -> int:
         # next iteration waits for the next higher update_id.
 
 
+def _step_existing_files() -> bool:
+    """Check for existing .env / config.yaml. Returns True if init should
+    continue (overwrite branch), False if init should exit (keep or cancel).
+    """
+    env_exists = Path(".env").exists()
+    cfg_exists = Path("config.yaml").exists()
+    if not (env_exists or cfg_exists):
+        return True
+    print()
+    print("I found an existing setup:")
+    print(f"  .env         {'EXISTS' if env_exists else 'not found'}")
+    print(f"  config.yaml  {'EXISTS' if cfg_exists else 'not found'}")
+    print()
+    print("What do you want to do?")
+    print("  1. Keep current files and exit.")
+    print("  2. Overwrite both files and continue setup.")
+    print("  3. Cancel.")
+    while True:
+        raw = _prompt("Enter a number [1-3]: ")
+        if raw == "1":
+            print("Your existing setup is unchanged.")
+            return False
+        if raw == "2":
+            return True
+        if raw == "3":
+            print("Setup cancelled. Nothing was changed.")
+            return False
+        print("  Please enter 1, 2, or 3.")
+
+
+def _step_write(
+    token: str,
+    chat_id: int,
+    provider_cfg: dict[str, str],
+    api_key: str,
+    provider_key: str,
+) -> None:
+    env_content = render_env(token, chat_id, provider_cfg["api_key_env"], api_key)
+    cfg_content = render_config(
+        provider_key,
+        provider_cfg["base_url"],
+        provider_cfg["api_key_env"],
+        provider_cfg["default_model"],
+    )
+    try:
+        write_files(env_content, cfg_content)
+    except Exception as e:
+        print(f"  Error writing config: {e}", file=sys.stderr)
+        raise
+    print()
+    print("All set. Now run:")
+    print()
+    print("    docker compose up -d")
+    print()
+    print("On Linux you may need `sudo` if you have not added yourself")
+    print("to the docker group.")
+
+
 def main() -> int:
     """Entry point for `python3 -m agent init`. Returns process exit code."""
     print("kayaclaw init")
     print("Walk through four questions to set up your first install.")
+    if not _step_existing_files():
+        return 0
     provider_key, provider_cfg, api_key = _step_provider()
     token, bot_username = _step_telegram_token()
     chat_id = _step_chat_id(token, bot_username)
-    print()
-    print(f"Provider: {provider_cfg['label']}. Bot: @{bot_username}. Chat: {chat_id}.")
-    print("File writes arrive in the next step.")
-    _ = api_key, provider_key  # wired in Step 4
+    _step_write(token, chat_id, provider_cfg, api_key, provider_key)
+    _ = bot_username  # reserved for future "test bot reachability" check
     return 0
