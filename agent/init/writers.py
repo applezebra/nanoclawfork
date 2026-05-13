@@ -1,8 +1,15 @@
 """Render and write .env and config.yaml for `kayaclaw init`.
 
 render_env and render_config return strings; write_files lays them down
-atomically with a validate-then-write sequence so a Ctrl-C mid-write
-cannot leave a half-overwritten real config behind.
+atomically with a parse-then-write sequence so a Ctrl-C mid-write cannot
+leave a half-overwritten real config behind.
+
+Init is a bootstrap. It must run on a fresh `git clone` whose only
+prerequisites are Docker and Python 3.12 (the README's quick-start
+promise). It therefore MUST NOT import any runtime dependency such as
+pydantic, pydantic-ai-slim, or python-telegram-bot. The container's
+own config loader validates the YAML at boot, so init only needs to
+confirm the generated YAML parses cleanly before writing.
 """
 from __future__ import annotations
 
@@ -79,26 +86,27 @@ def write_files(
     config_content: str,
     target_dir: Path | None = None,
 ) -> None:
-    """Validate config, then write both files atomically.
+    """Parse-check config, then write both files atomically.
 
     Sequence:
-      1. Parse config_content and run Config.model_validate (no disk writes).
+      1. yaml.safe_load(config_content) confirms the YAML is well-formed
+         (no disk writes yet).
       2. Write .env to .env.tmp.
       3. Write config.yaml to config.yaml.tmp.
       4. Atomic rename .env.tmp -> .env.
       5. Atomic rename config.yaml.tmp -> config.yaml.
 
-    Validation failure leaves nothing on disk. A Ctrl-C between step 2 and
-    step 5 leaves only .tmp files; the real .env and config.yaml are
+    Schema-level validation (provider kind, allowed_models, etc) happens
+    in the container at boot via agent/config.py. Init deliberately does
+    NOT import pydantic so it can run on a fresh clone whose only deps
+    are Docker and Python 3.12.
+
+    A YAML parse failure leaves nothing on disk. A Ctrl-C between step 2
+    and step 5 leaves only .tmp files; the real .env and config.yaml are
     untouched.
     """
-    # Deferred import: agent.config pulls pydantic, which is fine here
-    # because we only reach this code after the user finished input.
-    from agent.config import Config
-
     target = target_dir or Path.cwd()
-    parsed = yaml.safe_load(config_content) or {}
-    Config.model_validate(parsed)
+    yaml.safe_load(config_content)
 
     env_tmp = target / ".env.tmp"
     cfg_tmp = target / "config.yaml.tmp"

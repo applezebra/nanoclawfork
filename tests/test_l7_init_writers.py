@@ -129,16 +129,47 @@ def test_write_files_happy_path(tmp_path: Path):
     assert not (tmp_path / "config.yaml.tmp").exists()
 
 
-def test_write_files_validation_failure_leaves_nothing(tmp_path: Path):
-    """Invalid config_content must not produce ANY file on disk."""
+def test_write_files_malformed_yaml_leaves_nothing(tmp_path: Path):
+    """Malformed YAML (not parseable) must not produce ANY file on disk.
+
+    Schema-level validation (provider kind, allowed_models, etc) happens
+    at container boot in agent/config.py, not in write_files, because
+    init must not import pydantic. write_files's only pre-write check is
+    that the YAML parses.
+    """
     env = render_env("tok", 1, "OPENROUTER_API_KEY", "sk-or-abc")
-    bad_cfg = yaml.safe_dump({"providers": "not-a-dict-at-all"})
-    with pytest.raises(Exception):
+    bad_cfg = "providers:\n  - this is not: valid yaml\n    unclosed: ["
+    with pytest.raises(yaml.YAMLError):
         write_files(env, bad_cfg, target_dir=tmp_path)
     assert not (tmp_path / ".env").exists()
     assert not (tmp_path / "config.yaml").exists()
     assert not (tmp_path / ".env.tmp").exists()
     assert not (tmp_path / "config.yaml.tmp").exists()
+
+
+def test_write_files_does_not_import_pydantic(tmp_path: Path):
+    """Regression for the v0.1.7-init smoke FAIL: write_files must work
+    on a fresh clone whose only deps are stdlib + PyYAML. Verify the
+    happy path runs even if pydantic is hidden from sys.modules.
+    """
+    import sys
+    saved = {k: sys.modules.pop(k) for k in list(sys.modules)
+             if k == "pydantic" or k.startswith("pydantic.")}
+    sys.modules["pydantic"] = None  # type: ignore[assignment]
+    try:
+        env = render_env("tok", 1, "OPENROUTER_API_KEY", "sk-or-abc")
+        cfg = render_config(
+            "openrouter",
+            "https://openrouter.ai/api/v1",
+            "OPENROUTER_API_KEY",
+            "meta-llama/llama-3.3-70b-instruct",
+        )
+        write_files(env, cfg, target_dir=tmp_path)
+        assert (tmp_path / ".env").exists()
+        assert (tmp_path / "config.yaml").exists()
+    finally:
+        sys.modules.pop("pydantic", None)
+        sys.modules.update(saved)
 
 
 def test_write_files_overwrites_existing(tmp_path: Path):

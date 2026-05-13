@@ -146,7 +146,8 @@ def _step_provider() -> tuple[str, dict[str, str], str]:
         if detected in PROVIDER_DEFAULTS:
             provider_cfg = dict(PROVIDER_DEFAULTS[detected])
             prefix_label = provider_cfg.get("prefix_label", provider_cfg["label"])
-            if _confirm(f"Looks like a {prefix_label} key. Proceed?"):
+            article = "an" if prefix_label[:1].lower() in "aeiou" else "a"
+            if _confirm(f"Looks like {article} {prefix_label} key. Proceed?"):
                 result = validate_provider_key(provider_cfg["base_url"], raw)
                 if result.ok:
                     print(f"  Provider key valid for {provider_cfg['label']}.")
