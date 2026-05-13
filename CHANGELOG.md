@@ -2,6 +2,11 @@
 
 All notable changes to kayaclaw are documented in this file. Format follows Keep a Changelog (https://keepachangelog.com/en/1.1.0/). This project adheres to Semantic Versioning (https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-05-12
+
+### Added
+- `python3 -m agent init` walks first-time self-hosters through setup. Run it after `git clone`. Init asks for your provider key, your Telegram bot token, then asks you to send a message to your bot so it can capture your chat ID automatically. Each answer is validated against the real Telegram and provider APIs before init moves on. The command writes `.env` and `config.yaml` for you. The previous "copy templates and fill in three values" path still works for advanced users.
+
 ## [0.1.6] - 2026-05-10
 
 ### Added
