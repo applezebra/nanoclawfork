@@ -2,6 +2,11 @@
 
 All notable changes to kayaclaw are documented in this file. Format follows Keep a Changelog (https://keepachangelog.com/en/1.1.0/). This project adheres to Semantic Versioning (https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2026-05-20
+
+### Changed
+- When init's provider key or Telegram token validation fails, the error message now shows the actual HTTP status, the endpoint hit, and the first chunk of the provider's response body so you can see exactly why it failed and copy-paste the text if you need to ask for help. A short menu lets you retry with the same value (after you fixed the upstream issue), paste a new value, or quit. There is no built-in retry cap any more: keep going until it works or quit. Secret values in the response body are redacted before display.
+
 ## [0.1.7] - 2026-05-12
 
 ### Added

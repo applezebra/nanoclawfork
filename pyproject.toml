@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "kayaclaw"
-version = "0.1.7"
+version = "0.1.8"
 description = "A small, hardened AI agent for Telegram. SQLite memory, your choice of OpenAI-compatible LLM provider."
 # `readme` field intentionally omitted in L0. README.md is created in L6.
 # Add `readme = "README.md"` here as part of L6 release polish.
