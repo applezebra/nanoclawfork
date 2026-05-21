@@ -44,6 +44,8 @@ python3 -m agent init
 
 Each answer is validated against the real provider before init moves on.
 
+If validation fails (your key was bad, your account has no credit, the provider is rate-limiting you, anything), init now shows the upstream error verbatim and offers to retry once you have fixed the issue, without making you restart the whole setup.
+
 Bring it up:
 
 ```

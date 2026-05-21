@@ -40,8 +40,8 @@ class _Resp:
     def __exit__(self, *exc: Any) -> None:
         return None
 
-    def read(self) -> bytes:
-        return self._body
+    def read(self, n: int | None = None) -> bytes:
+        return self._body if n is None or n < 0 else self._body[:n]
 
 
 def _ok(payload: dict) -> _Resp:
@@ -237,10 +237,15 @@ def test_happy_path_custom_provider(chdir_tmp: Path, fast_time, docker_present):
 
 
 def test_telegram_retry_then_success(chdir_tmp: Path, fast_time, docker_present):
+    # Between attempts the retry menu prompts r/n/q. Test pipes "n"
+    # (new value) so each subsequent attempt re-prompts and gets a
+    # different value from the queue.
     fake_input, _q = _input_queue(
         "sk-or-key", "",
         "bad1",                  # first telegram attempt (will 401)
+        "n",                     # retry menu: new value
         "bad2",                  # second attempt (will 401)
+        "n",                     # retry menu: new value
         "good:token",            # third attempt
         "",                      # accept chat id
     )
@@ -263,10 +268,12 @@ def test_telegram_retry_then_success(chdir_tmp: Path, fast_time, docker_present)
 
 
 def test_provider_retry_then_success(chdir_tmp: Path, fast_time, docker_present):
+    # "n" between attempts to indicate "paste a new value".
     fake_input, _q = _input_queue(
         "",            # press Enter for list
         "1",           # OpenRouter
         "bad-key",     # attempt 1 (401)
+        "n",           # retry menu: new value
         "good-key",    # attempt 2 (200)
         "tg:token", "",
     )
@@ -283,25 +290,27 @@ def test_provider_retry_then_success(chdir_tmp: Path, fast_time, docker_present)
     assert rc == 0
 
 
-# Case 7: three Telegram failures -> sys.exit(1) and no files
+# Case 7: user [q]uits after Telegram failures -> rc=1 and no files
+# (no built-in attempt cap; abort is user-driven via the [q] menu)
 
 
-def test_three_telegram_failures_exits_no_files(chdir_tmp: Path, fast_time, docker_present):
+def test_user_quits_after_telegram_failures_no_files(chdir_tmp: Path, fast_time, docker_present):
     fake_input, _q = _input_queue(
         "sk-or-key", "",
-        "bad1", "bad2", "bad3",
+        "bad1",                  # attempt 1 (401)
+        "n",                     # menu: new value
+        "bad2",                  # attempt 2 (401)
+        "q",                     # menu: quit
     )
     val_responses = [
         _models_ok(),
         _http_err(401, {"ok": False}),
         _http_err(401, {"ok": False}),
-        _http_err(401, {"ok": False}),
     ]
     with patch("builtins.input", side_effect=fake_input), patch("agent.init.cli.getpass.getpass", side_effect=fake_input), \
          patch("urllib.request.urlopen", side_effect=_script_urlopen(val_responses)):
-        with pytest.raises(SystemExit) as exc_info:
-            cli_mod.main()
-    assert exc_info.value.code == 1
+        rc = cli_mod.main()
+    assert rc == 1
     assert not (chdir_tmp / ".env").exists()
     assert not (chdir_tmp / "config.yaml").exists()
 
